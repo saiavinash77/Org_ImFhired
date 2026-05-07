@@ -72,6 +72,12 @@ const EMPTY_WEEKLY: { day: string; apps: number; interviews: number }[] = [
   { day: 'Sun', apps: 0, interviews: 0 },
 ]
 
+type WeeklyActivityDay = {
+  day: string
+  apps: number
+  interviews: number
+}
+
 export default function AnalyticsPage() {
   const [range, setRange] = useState('30d')
   const [loading, setLoading] = useState(true)
@@ -126,7 +132,7 @@ export default function AnalyticsPage() {
   
   // Calculate the maximum value across both apps and interviews for proper chart scaling
   const maxVal = Math.max(
-    ...weeklyTrend.map((d: any) => Math.max(d.apps || 0, d.interviews || 0)), 
+    ...weeklyTrend.map((d: WeeklyActivityDay) => Math.max(d.apps || 0, d.interviews || 0)),
     1
   )
 
@@ -272,7 +278,7 @@ export default function AnalyticsPage() {
             </div>
           </div>
           <div className="flex items-end gap-3 h-40">
-            {weeklyTrend.map(d => (
+            {weeklyTrend.map((d: WeeklyActivityDay) => (
               <div key={d.day} className="flex-1 flex flex-col items-center gap-1">
                 <div className="flex items-end gap-0.5 w-full h-32">
                   <div

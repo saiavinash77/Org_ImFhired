@@ -50,7 +50,7 @@ import websockets
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 
 from app.core.config import settings
-from app.core.database import get_supabase, get_redis
+from app.core.database import get_pg_pool, get_redis
 from app.services.ai_interviewer import InterviewStateMachine, InterviewPhase
 
 router = APIRouter()
@@ -123,7 +123,7 @@ class RealtimeInterviewSession:
     # ── Initialization ────────────────────────────────────────────────────────
 
     async def initialize(self):
-        """Load interview data from Supabase and build the state machine."""
+        """Load interview data from RDS and build the state machine."""
         is_test = self.interview_id in {"test", "test-interview"}
 
         if is_test:
@@ -142,45 +142,115 @@ class RealtimeInterviewSession:
                 "expected_salary": "18",
             }
         else:
-            supabase = get_supabase()
-            result = supabase.table("interviews").select(
-                "*, applications(*, jobs(*), users(*))"
-            ).eq("id", self.interview_id).single().execute()
+            pool = await get_pg_pool()
 
-            if not result.data:
-                raise ValueError(f"Interview {self.interview_id} not found")
+            # Check if this is a verification interview first
+            async with pool.acquire() as conn:
+                vi_row = await conn.fetchrow(
+                    """
+                    SELECT vi.*, p.parsed_data, p.full_name, u.email
+                    FROM verification_interviews vi
+                    JOIN profiles p ON p.id = vi.candidate_id
+                    JOIN users u ON u.id = vi.candidate_id
+                    WHERE vi.id = $1
+                    """,
+                    self.interview_id,
+                )
 
-            data = result.data
-            application = data["applications"]
-            job = application["jobs"]
-            candidate = application["users"]
+            if vi_row:
+                # Verification interview — general skills assessment, not job-specific
+                self._is_verification = True
+                resume_data = vi_row["parsed_data"] or {}
+                if isinstance(resume_data, str):
+                    try:
+                        import json as _json
+                        resume_data = _json.loads(resume_data)
+                    except Exception:
+                        resume_data = {}
+                candidate_name = (
+                    (resume_data.get("name") or "").strip()
+                    or (vi_row["full_name"] or "").strip()
+                    or vi_row["email"].split("@")[0].title()
+                )
+                resume_data.setdefault("name", candidate_name)
+                job_data = {
+                    "title": "Verification Interview",
+                    "description": (
+                        "This is a general skills verification interview. "
+                        "Assess the candidate's communication, technical depth, and problem-solving ability."
+                    ),
+                    "requirements": resume_data.get("skills", [])[:8],
+                    "required_skills": resume_data.get("skills", [])[:8],
+                    "salary_min": 0,
+                    "salary_max": 0,
+                }
+                # Mark as in-progress
+                async with pool.acquire() as conn:
+                    await conn.execute(
+                        "UPDATE verification_interviews SET status = 'in_progress' WHERE id = $1",
+                        self.interview_id,
+                    )
+            else:
+                # Regular job interview
+                self._is_verification = False
+                async with pool.acquire() as conn:
+                    row = await conn.fetchrow(
+                        """
+                        SELECT
+                            i.*,
+                            a.parsed_data,
+                            j.title AS job_title,
+                            j.description AS job_description,
+                            j.requirements AS job_requirements,
+                            j.salary_min, j.salary_max,
+                            u.email AS candidate_email,
+                            p.full_name AS candidate_full_name
+                        FROM interviews i
+                        JOIN applications a ON a.id = i.application_id
+                        JOIN jobs j ON j.id = a.job_id
+                        JOIN users u ON u.id = a.candidate_id
+                        LEFT JOIN profiles p ON p.id = a.candidate_id
+                        WHERE i.id = $1
+                        """,
+                        self.interview_id,
+                    )
 
-            job_data = dict(job or {})
-            req = job_data.get("required_skills") or job_data.get("requirements") or []
-            if not isinstance(req, list):
-                req = [str(req)] if req else []
-            job_data["required_skills"] = [str(x) for x in req if x is not None and str(x).strip()]
+                if not row:
+                    raise ValueError(f"Interview {self.interview_id} not found")
 
-            resume_data = application.get("parsed_data") or {}
-            if isinstance(resume_data, str):
-                try:
-                    import json
-                    resume_data = json.loads(resume_data)
-                except Exception:
+                resume_data = row["parsed_data"] or {}
+                if isinstance(resume_data, str):
+                    try:
+                        import json as _json
+                        resume_data = _json.loads(resume_data)
+                    except Exception:
+                        resume_data = {}
+                if not isinstance(resume_data, dict):
                     resume_data = {}
-            if not isinstance(resume_data, dict):
-                resume_data = {}
-            parsed_name = (resume_data.get("name") or "").strip() if isinstance(resume_data, dict) else ""
-            email_local = ""
-            if candidate and candidate.get("email"):
-                email_local = str(candidate["email"]).split("@")[0].replace(".", " ").title()
-            candidate_name = parsed_name or (candidate.get("name") if candidate else None) or email_local or "Candidate"
-            resume_data.setdefault("name", candidate_name)
 
-            # Mark as in-progress
-            supabase.table("interviews").update({
-                "status": "in_progress",
-            }).eq("id", self.interview_id).execute()
+                candidate_name = (
+                    (resume_data.get("name") or "").strip()
+                    or (row["candidate_full_name"] or "").strip()
+                    or row["candidate_email"].split("@")[0].title()
+                )
+                resume_data.setdefault("name", candidate_name)
+
+                req = list(row["job_requirements"] or [])
+                job_data = {
+                    "title": row["job_title"],
+                    "description": row["job_description"],
+                    "requirements": req,
+                    "required_skills": req,
+                    "salary_min": row["salary_min"],
+                    "salary_max": row["salary_max"],
+                }
+
+                # Mark as in-progress
+                async with pool.acquire() as conn:
+                    await conn.execute(
+                        "UPDATE interviews SET status = 'in_progress' WHERE id = $1",
+                        self.interview_id,
+                    )
 
         self.state_machine = InterviewStateMachine(
             interview_id=self.interview_id,
@@ -282,7 +352,6 @@ class RealtimeInterviewSession:
 
     async def end_interview(self):
         """Persist transcript and trigger assessment generation."""
-        # Prevent double-trigger (e.g. disconnect fires after end_interview already called)
         if self._assessment_triggered:
             print(f"[Realtime] Assessment already triggered for {self.interview_id} — skipping.")
             return
@@ -292,29 +361,29 @@ class RealtimeInterviewSession:
             print("[Realtime] Skipping DB update for test session.")
             return
 
-        supabase = get_supabase()
+        pool = await get_pg_pool()
+        is_verification = getattr(self, "_is_verification", False)
 
-        # ── Persist transcript + termination status ──
         db_status = "cancelled" if self.termination_reason == "tab_guard" else "completed"
-        update_payload: dict = {
-            "status": db_status,
-            "transcript": self.transcript,
-        }
+        table = "verification_interviews" if is_verification else "interviews"
+
         try:
-            supabase.table("interviews").update(update_payload).eq("id", self.interview_id).execute()
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    f"UPDATE {table} SET status = $1, transcript = $2 WHERE id = $3",
+                    db_status,
+                    self.transcript,
+                    self.interview_id,
+                )
+                if self.proctoring_logs:
+                    await conn.execute(
+                        f"UPDATE {table} SET proctoring_logs = $1 WHERE id = $2",
+                        self.proctoring_logs,
+                        self.interview_id,
+                    )
         except Exception as e:
             print(f"[Realtime] DB update error (non-fatal): {e}")
 
-        # Try to persist proctoring_logs separately — column may not exist yet
-        if self.proctoring_logs:
-            try:
-                supabase.table("interviews").update({
-                    "proctoring_logs": self.proctoring_logs,
-                }).eq("id", self.interview_id).execute()
-            except Exception:
-                pass  # column not present — logs are passed directly to assessment generator
-
-        # ── Trigger assessment with termination context ──
         try:
             from app.services.assessment_generator import generate_assessment
             asyncio.create_task(
@@ -323,6 +392,7 @@ class RealtimeInterviewSession:
                     self.transcript,
                     self.proctoring_logs,
                     termination_reason=self.termination_reason,
+                    is_verification=is_verification,
                 )
             )
             print(f"[Realtime] Assessment task queued for {self.interview_id} [{self.termination_reason}]")

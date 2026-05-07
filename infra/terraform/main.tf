@@ -259,15 +259,15 @@ resource "aws_ecs_task_definition" "backend" {
 
     # All sensitive values come from SSM Parameter Store (encrypted at rest)
     secrets = [
-      { name = "OPENAI_API_KEY",       valueFrom = aws_ssm_parameter.openai_key.arn },
-      { name = "SUPABASE_URL",         valueFrom = aws_ssm_parameter.supabase_url.arn },
-      { name = "SUPABASE_KEY",         valueFrom = aws_ssm_parameter.supabase_anon_key.arn },
-      { name = "SUPABASE_SERVICE_KEY", valueFrom = aws_ssm_parameter.supabase_service_key.arn },
-      { name = "SECRET_KEY",           valueFrom = aws_ssm_parameter.jwt_secret.arn },
-      { name = "REDIS_URL",            valueFrom = aws_ssm_parameter.redis_url.arn },
-      { name = "RESEND_API_KEY",       valueFrom = aws_ssm_parameter.resend_api_key.arn },
-      { name = "AWS_S3_BUCKET",        valueFrom = aws_ssm_parameter.s3_bucket.arn },
-      { name = "FRONTEND_URL",         valueFrom = aws_ssm_parameter.frontend_url.arn },
+      { name = "OPENAI_API_KEY", valueFrom = aws_ssm_parameter.openai_key.arn },
+      { name = "DATABASE_URL",   valueFrom = aws_ssm_parameter.database_url.arn },
+      { name = "COGNITO_USER_POOL_ID", valueFrom = aws_ssm_parameter.cognito_pool_id.arn },
+      { name = "COGNITO_CLIENT_ID",    valueFrom = aws_ssm_parameter.cognito_client_id.arn },
+      { name = "SECRET_KEY",     valueFrom = aws_ssm_parameter.jwt_secret.arn },
+      { name = "REDIS_URL",      valueFrom = aws_ssm_parameter.redis_url.arn },
+      { name = "RESEND_API_KEY", valueFrom = aws_ssm_parameter.resend_api_key.arn },
+      { name = "AWS_S3_BUCKET",  valueFrom = aws_ssm_parameter.s3_bucket.arn },
+      { name = "FRONTEND_URL",   valueFrom = aws_ssm_parameter.frontend_url.arn },
     ]
 
     logConfiguration = {
@@ -445,24 +445,26 @@ resource "aws_ssm_parameter" "openai_key" {
   lifecycle { ignore_changes = [value] }
 }
 
-resource "aws_ssm_parameter" "supabase_url" {
-  name  = "/${var.app_name}/${var.environment}/SUPABASE_URL"
+# ─── RDS PostgreSQL (replaces Supabase) ──────────────────────
+resource "aws_ssm_parameter" "database_url" {
+  name  = "/${var.app_name}/${var.environment}/DATABASE_URL"
   type  = "SecureString"
-  value = "PLACEHOLDER_SET_VIA_CONSOLE_OR_CLI"
+  value = "PLACEHOLDER_SET_AFTER_RDS_CREATION"
   lifecycle { ignore_changes = [value] }
 }
 
-resource "aws_ssm_parameter" "supabase_anon_key" {
-  name  = "/${var.app_name}/${var.environment}/SUPABASE_KEY"
+# ─── AWS Cognito (replaces Supabase Auth) ────────────────────
+resource "aws_ssm_parameter" "cognito_pool_id" {
+  name  = "/${var.app_name}/${var.environment}/COGNITO_USER_POOL_ID"
   type  = "SecureString"
-  value = "PLACEHOLDER_SET_VIA_CONSOLE_OR_CLI"
+  value = "PLACEHOLDER_SET_AFTER_COGNITO_CREATION"
   lifecycle { ignore_changes = [value] }
 }
 
-resource "aws_ssm_parameter" "supabase_service_key" {
-  name  = "/${var.app_name}/${var.environment}/SUPABASE_SERVICE_KEY"
+resource "aws_ssm_parameter" "cognito_client_id" {
+  name  = "/${var.app_name}/${var.environment}/COGNITO_CLIENT_ID"
   type  = "SecureString"
-  value = "PLACEHOLDER_SET_VIA_CONSOLE_OR_CLI"
+  value = "PLACEHOLDER_SET_AFTER_COGNITO_CREATION"
   lifecycle { ignore_changes = [value] }
 }
 
@@ -722,4 +724,164 @@ output "github_actions_role_arn" {
 output "nat_gateway_public_ip" {
   description = "NAT Gateway Elastic IP (whitelist this in any external service if needed)"
   value       = aws_eip.nat.public_ip
+}
+
+
+# ============================================================
+# AWS RDS PostgreSQL (replaces Supabase)
+# ============================================================
+
+resource "aws_security_group" "rds" {
+  name        = "${var.app_name}-rds-sg"
+  description = "Allow ECS to RDS PostgreSQL"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    description     = "PostgreSQL from ECS"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.ecs.id]
+  }
+  tags = { Name = "${var.app_name}-rds-sg" }
+}
+
+resource "aws_db_subnet_group" "main" {
+  name       = "${var.app_name}-rds-subnet"
+  subnet_ids = aws_subnet.private[*].id
+  tags       = { Name = "${var.app_name}-rds-subnet-group" }
+}
+
+resource "aws_db_instance" "postgres" {
+  identifier              = "${var.app_name}-postgres"
+  engine                  = "postgres"
+  engine_version          = "16.3"
+  instance_class          = "db.t3.medium"
+  allocated_storage       = 20
+  max_allocated_storage   = 100
+  storage_encrypted       = true
+  db_name                 = "hireai"
+  username                = "hireai"
+  # Password set via AWS Console or CLI after creation — never in Terraform state
+  manage_master_user_password = true
+
+  db_subnet_group_name   = aws_db_subnet_group.main.name
+  vpc_security_group_ids = [aws_security_group.rds.id]
+  publicly_accessible    = false
+  multi_az               = false  # set true for production HA
+  skip_final_snapshot    = false
+  final_snapshot_identifier = "${var.app_name}-final-snapshot"
+
+  backup_retention_period = 7
+  backup_window           = "03:00-04:00"
+  maintenance_window      = "Mon:04:00-Mon:05:00"
+
+  # Enable pgvector extension via parameter group
+  parameter_group_name = aws_db_parameter_group.postgres.name
+
+  tags = { Name = "${var.app_name}-postgres" }
+}
+
+resource "aws_db_parameter_group" "postgres" {
+  name   = "${var.app_name}-postgres16"
+  family = "postgres16"
+
+  parameter {
+    name  = "shared_preload_libraries"
+    value = "pg_stat_statements"
+  }
+
+  tags = { Name = "${var.app_name}-pg-params" }
+}
+
+output "rds_endpoint" {
+  description = "RDS PostgreSQL endpoint — use in DATABASE_URL"
+  value       = aws_db_instance.postgres.endpoint
+}
+
+# ============================================================
+# AWS Cognito User Pool (replaces Supabase Auth)
+# ============================================================
+
+resource "aws_cognito_user_pool" "main" {
+  name = "${var.app_name}-users"
+
+  # Password policy
+  password_policy {
+    minimum_length                   = 8
+    require_lowercase                = true
+    require_numbers                  = true
+    require_symbols                  = false
+    require_uppercase                = false
+    temporary_password_validity_days = 7
+  }
+
+  # Use email as username
+  username_attributes      = ["email"]
+  auto_verified_attributes = ["email"]
+
+  # Email verification
+  verification_message_template {
+    default_email_option = "CONFIRM_WITH_CODE"
+    email_subject        = "HireAI — Verify your email"
+    email_message        = "Your HireAI verification code is {####}"
+  }
+
+  # Custom attributes for role
+  schema {
+    name                     = "role"
+    attribute_data_type      = "String"
+    mutable                  = true
+    required                 = false
+    string_attribute_constraints {
+      min_length = 1
+      max_length = 20
+    }
+  }
+
+  # Account recovery
+  account_recovery_setting {
+    recovery_mechanism {
+      name     = "verified_email"
+      priority = 1
+    }
+  }
+
+  tags = { Name = "${var.app_name}-cognito" }
+}
+
+resource "aws_cognito_user_pool_client" "backend" {
+  name         = "${var.app_name}-backend-client"
+  user_pool_id = aws_cognito_user_pool.main.id
+
+  # Server-side auth flows (used by FastAPI backend)
+  explicit_auth_flows = [
+    "ALLOW_ADMIN_USER_PASSWORD_AUTH",
+    "ALLOW_REFRESH_TOKEN_AUTH",
+    "ALLOW_USER_PASSWORD_AUTH",
+  ]
+
+  # No client secret for simplicity (set generate_secret=true if you want one)
+  generate_secret = false
+
+  token_validity_units {
+    access_token  = "hours"
+    id_token      = "hours"
+    refresh_token = "days"
+  }
+  access_token_validity  = 24
+  id_token_validity      = 24
+  refresh_token_validity = 30
+
+  prevent_user_existence_errors = "ENABLED"
+}
+
+output "cognito_user_pool_id" {
+  description = "Cognito User Pool ID — set as COGNITO_USER_POOL_ID"
+  value       = aws_cognito_user_pool.main.id
+}
+
+output "cognito_client_id" {
+  description = "Cognito App Client ID — set as COGNITO_CLIENT_ID"
+  value       = aws_cognito_user_pool_client.backend.id
 }

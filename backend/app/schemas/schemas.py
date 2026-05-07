@@ -74,8 +74,11 @@ class SocialLoginRequest(BaseModel):
 
 class ProfileResponse(BaseModel):
     full_name: str
+    phone: Optional[str] = None
     avatar_url: Optional[str] = None
     company_name: Optional[str] = None
+    company_website: Optional[str] = None
+    bio: Optional[str] = None
     headline: Optional[str] = None
     skills: List[str] = Field(default_factory=list)
     resume_url: Optional[str] = None
@@ -91,7 +94,11 @@ class ProfileResponse(BaseModel):
 
 class ProfileUpdate(BaseModel):
     full_name: Optional[str] = None
+    phone: Optional[str] = None
     headline: Optional[str] = None
+    company_name: Optional[str] = None
+    company_website: Optional[str] = None
+    bio: Optional[str] = None
     skills: Optional[List[str]] = None
     resume_url: Optional[str] = None
     parsed_data: Optional[Dict[str, Any]] = None

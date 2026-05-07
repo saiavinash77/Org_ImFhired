@@ -21,8 +21,11 @@ export interface AuthUser {
   role: 'recruiter' | 'candidate' | 'admin'
   profile?: {
     full_name?: string
+    phone?: string
     avatar_url?: string
     company_name?: string
+    company_website?: string
+    bio?: string
     headline?: string
     skills?: string[]
     resume_url?: string

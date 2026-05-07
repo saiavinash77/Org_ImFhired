@@ -31,7 +31,7 @@ class MatchingEngine:
     """
     
     def __init__(self):
-        self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        self.client = AsyncOpenAI(api_key=settings.GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
         self.embedding_model = "text-embedding-3-small"
 
     async def compute_match_score(

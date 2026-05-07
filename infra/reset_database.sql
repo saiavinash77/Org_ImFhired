@@ -20,7 +20,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE public.users (
   id UUID PRIMARY KEY, -- Matches Supabase Auth User ID
   email TEXT UNIQUE NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('recruiter', 'candidate')),
+  role TEXT NOT NULL CHECK (role IN ('recruiter', 'candidate', 'admin')),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -40,6 +40,8 @@ CREATE TABLE public.profiles (
   headline TEXT, -- e.g. "Fullstack Developer"
   skills TEXT[], -- Array of skills
   resume_url TEXT,
+  parsed_data JSONB,
+  experience_years FLOAT DEFAULT 0,
   
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
@@ -74,7 +76,7 @@ CREATE TABLE public.applications (
   job_id UUID REFERENCES public.jobs(id) ON DELETE CASCADE NOT NULL,
   candidate_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
   
-  status TEXT NOT NULL DEFAULT 'applied' CHECK (status IN ('applied', 'screening', 'invited', 'scheduled', 'interviewing', 'interviewed', 'offered', 'rejected')),
+  status TEXT NOT NULL DEFAULT 'applied' CHECK (status IN ('applied', 'screening', 'invited', 'scheduled', 'interviewing', 'interviewed', 'offered', 'hired', 'rejected')),
   resume_url TEXT,
   resume_summary TEXT, -- AI generated summary
   parsed_data JSONB DEFAULT '{}',
@@ -90,7 +92,7 @@ CREATE TABLE public.interviews (
   application_id UUID REFERENCES public.applications(id) ON DELETE CASCADE NOT NULL,
   
   scheduled_at TIMESTAMP WITH TIME ZONE,
-  status TEXT DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'in_progress', 'completed', 'cancelled')),
+  status TEXT DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'in_progress', 'completed', 'cancelled', 'no_show')),
   unique_link TEXT UNIQUE,
   transcript JSONB DEFAULT '[]',
   proctoring_logs JSONB DEFAULT '[]',

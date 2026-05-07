@@ -141,7 +141,7 @@ export default function SettingsPage() {
         setCompanyWebsite(p.company_website || '')
         setCompanyBio(p.bio || '')
         
-        const parsed = p.parsed_data || {}
+        const parsed = (p.parsed_data || {}) as Record<string, string | undefined>
         setCompanyIndustry(parsed.industry || '')
         setCompanySize(parsed.company_size || '')
         

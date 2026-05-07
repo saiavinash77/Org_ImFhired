@@ -4,8 +4,16 @@
  */
 
 import { getApiUrl } from '@/lib/api'
+import type { AuthUser } from '@/hooks/useAuth'
 
 const BASE_URL = getApiUrl()
+
+type TeamMember = {
+  id: string
+  email: string
+  role: string
+  profile?: AuthUser['profile']
+}
 
 class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -44,9 +52,9 @@ export const authApi = {
   login: (email: string, password: string) =>
     request('/api/v1/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
 
-  me: () => request('/api/v1/auth/me'),
+  me: () => request<AuthUser>('/api/v1/auth/me'),
 
-  getTeamMembers: () => request('/api/v1/auth/team'),
+  getTeamMembers: () => request<TeamMember[]>('/api/v1/auth/team'),
 
   inviteTeamMember: (name: string, email: string) =>
     request('/api/v1/auth/invite', { method: 'POST', body: JSON.stringify({ name, email }) }),

@@ -11,7 +11,7 @@ from app.core.database import get_supabase
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+client = AsyncOpenAI(api_key=settings.GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
 
 class ChatMessage(BaseModel):
     role: str

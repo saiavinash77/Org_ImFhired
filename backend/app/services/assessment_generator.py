@@ -13,7 +13,7 @@ import json
 from typing import Any, Dict, List, Optional, Tuple
 from openai import AsyncOpenAI
 from app.core.config import settings
-from app.core.database import get_supabase
+from app.core.database import get_pg_pool
 from app.schemas.schemas import HireVerdict, InterviewStatus, ApplicationStatus
 from app.services.email_service import send_assessment_ready, send_candidate_scorecard_email
 import logging
@@ -22,7 +22,7 @@ from langfuse import observe
 
 logger = logging.getLogger(__name__)
 
-client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+client = AsyncOpenAI(api_key=settings.GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
 
 
 # ── Dimension weights for overall_score ───────────────────────────────────────
@@ -656,192 +656,243 @@ async def generate_assessment(
     transcript: List[Dict],
     proctoring_logs: List[Dict] = None,
     termination_reason: str = "completed",
+    is_verification: bool = False,
 ):
     """
-    Background Task:
-    1. Fetch interview/job/candidate data
-    2. Run AI assessment analysis (with termination-aware logic)
-    3. Save results to Supabase 'assessments' table
-    4. Update application/interview status
-    5. Notify recruiter + candidate via email
+    Background Task — works for both job interviews and verification interviews.
+    1. Fetch interview/job/candidate data from RDS
+    2. Run AI assessment
+    3. Save results to RDS assessments table
+    4. Update statuses
+    5. Notify via email
+    If is_verification=True, saves result to profiles.verification_* columns instead.
     """
-    supabase = get_supabase()
+    pool = await get_pg_pool()
+    proctoring_logs = proctoring_logs or []
 
     try:
-        # Deduplicate — skip if already generated
-        existing = supabase.table("assessments").select("id").eq("interview_id", interview_id).execute()
-        if existing.data:
-            logger.info(f"Assessment already exists for interview {interview_id}; skipping.")
+        # ── Deduplicate ───────────────────────────────────────────────────────
+        async with pool.acquire() as conn:
+            existing = await conn.fetchrow(
+                "SELECT id FROM assessments WHERE interview_id = $1", interview_id
+            )
+        if existing:
+            logger.info(f"Assessment already exists for {interview_id}; skipping.")
             return
 
-        proctoring_logs = proctoring_logs or []
+        # ── Fetch data ────────────────────────────────────────────────────────
+        if is_verification:
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT vi.*, p.parsed_data, p.full_name, u.email
+                    FROM verification_interviews vi
+                    JOIN profiles p ON p.id = vi.candidate_id
+                    JOIN users u ON u.id = vi.candidate_id
+                    WHERE vi.id = $1
+                    """,
+                    interview_id,
+                )
+            if not row:
+                logger.error(f"Verification interview {interview_id} not found")
+                return
 
-        # 1. Fetch interview + related data
-        res = supabase.table("interviews").select(
-            "*, applications(*, jobs(*, recruiter:users!recruiter_id(*)), users(*))"
-        ).eq("id", interview_id).single().execute()
+            # Use stored transcript if caller passed empty
+            if not transcript and row["transcript"]:
+                t = row["transcript"]
+                transcript = t if isinstance(t, list) else []
+            if not proctoring_logs and row["proctoring_logs"]:
+                pl = row["proctoring_logs"]
+                proctoring_logs = pl if isinstance(pl, list) else []
 
-        if not res.data:
-            logger.error(f"Interview {interview_id} not found for assessment")
-            return
-
-        data = res.data
-        application = data["applications"]
-        job = application.get("jobs") or {}
-        candidate = application.get("users") or {}
-        recruiter = job.get("recruiter") or {}
-
-        # Prefer persisted rows if background task received an empty payload
-        if not transcript and data.get("transcript"):
-            t = data["transcript"]
-            transcript = t if isinstance(t, list) else []
-        if not proctoring_logs and data.get("proctoring_logs"):
-            pl = data["proctoring_logs"]
-            proctoring_logs = pl if isinstance(pl, list) else []
-
-        # Duration
-        raw_start = data.get("started_at")
-        if raw_start:
-            try:
-                started_at = datetime.fromisoformat(raw_start.replace("Z", "+00:00"))
-            except Exception:
-                started_at = datetime.utcnow()
+            resume_blob = row["parsed_data"] or {}
+            candidate_name = (resume_blob.get("name") or row["full_name"] or "Candidate").strip()
+            candidate_email = row["email"]
+            candidate_id = str(row["candidate_id"])
+            job_data = {"title": "Verification Interview", "requirements": [], "description": ""}
+            recruiter_email = None
+            app_id = None
         else:
-            started_at = datetime.utcnow()
-        duration_mins = max(1, int((datetime.utcnow() - started_at).total_seconds() / 60))
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT
+                        i.*,
+                        a.id AS app_id,
+                        a.parsed_data,
+                        a.candidate_id,
+                        j.title AS job_title,
+                        j.description AS job_description,
+                        j.requirements AS job_requirements,
+                        j.salary_min, j.salary_max,
+                        u_cand.email AS candidate_email,
+                        p.full_name AS candidate_full_name,
+                        u_rec.email AS recruiter_email,
+                        u_rec.id AS recruiter_id
+                    FROM interviews i
+                    JOIN applications a ON a.id = i.application_id
+                    JOIN jobs j ON j.id = a.job_id
+                    JOIN users u_cand ON u_cand.id = a.candidate_id
+                    LEFT JOIN profiles p ON p.id = a.candidate_id
+                    JOIN users u_rec ON u_rec.id = j.recruiter_id
+                    WHERE i.id = $1
+                    """,
+                    interview_id,
+                )
+            if not row:
+                logger.error(f"Interview {interview_id} not found")
+                return
 
-        # 2. Build resume data
-        resume_blob = application.get("parsed_data") or {}
-        if isinstance(resume_blob, str):
-            try:
-                resume_blob = json.loads(resume_blob)
-            except Exception:
-                resume_blob = {}
-        if not isinstance(resume_blob, dict):
-            resume_blob = {}
+            if not transcript and row["transcript"]:
+                t = row["transcript"]
+                transcript = t if isinstance(t, list) else []
+            if not proctoring_logs and row["proctoring_logs"]:
+                pl = row["proctoring_logs"]
+                proctoring_logs = pl if isinstance(pl, list) else []
 
-        candidate_name = (
-            (resume_blob.get("name") or "").strip()
-            or (candidate.get("name") or "").strip()
-            or (str(candidate.get("email", "")).split("@")[0] if candidate.get("email") else "")
-            or "Candidate"
-        )
+            resume_blob = row["parsed_data"] or {}
+            if isinstance(resume_blob, str):
+                try:
+                    resume_blob = json.loads(resume_blob)
+                except Exception:
+                    resume_blob = {}
 
-        # 3. Run AI assessment with termination context
+            candidate_name = (
+                (resume_blob.get("name") or "").strip()
+                or (row["candidate_full_name"] or "").strip()
+                or row["candidate_email"].split("@")[0].title()
+            )
+            candidate_email = row["candidate_email"]
+            candidate_id = str(row["candidate_id"])
+            app_id = str(row["app_id"])
+            recruiter_email = row["recruiter_email"]
+            job_data = {
+                "title": row["job_title"],
+                "description": row["job_description"],
+                "requirements": list(row["job_requirements"] or []),
+                "salary_min": row["salary_min"],
+                "salary_max": row["salary_max"],
+            }
+
+        duration_mins = 30  # default; could be computed from transcript timestamps
+
+        # ── Run AI assessment ─────────────────────────────────────────────────
         assessment_data = await assessment_generator.generate_assessment(
             interview_id=interview_id,
             transcript=transcript,
             proctoring_logs=proctoring_logs,
-            job_data=job,
+            job_data=job_data,
             resume_data=resume_blob,
             duration_minutes=duration_mins,
             termination_reason=termination_reason,
         )
-
         assessment_data["candidate_name"] = candidate_name
-        assessment_data["job_title"] = job.get("title", "Unknown Role")
-        assessment_data["proctoring_logs_raw"] = proctoring_logs
-        assessment_data["transcript_turns"] = len(transcript or [])
+        assessment_data["job_title"] = job_data.get("title", "Unknown Role")
 
         verdict = assessment_data.get("verdict", "no_hire")
+        overall_score = float(assessment_data.get("overall_score") or 0)
         assessment_id = str(uuid.uuid4())
 
-        # 4. Build DB insert row — null scores stored as NULL (not 0)
-        insert_row: Dict[str, Any] = {
-            "id": assessment_id,
-            "interview_id": interview_id,
-            "overall_score": assessment_data.get("overall_score") or 0,
-            "technical_score": assessment_data.get("technical_score"),   # may be null
-            "behavioral_score": assessment_data.get("behavioral_score"), # may be null
-            "verdict": verdict,
-            "detailed_report": assessment_data,
-        }
+        # ── Save to RDS ───────────────────────────────────────────────────────
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO assessments (
+                    id, interview_id, overall_score, technical_score, behavioral_score,
+                    communication_score, cultural_fit_score, problem_solving_score,
+                    expected_salary, negotiated_salary, verdict, verdict_reasoning,
+                    key_strengths, areas_of_improvement, round_summaries, detailed_report
+                ) VALUES (
+                    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16
+                )
+                ON CONFLICT (interview_id) DO NOTHING
+                """,
+                assessment_id,
+                interview_id,
+                overall_score,
+                assessment_data.get("technical_score"),
+                assessment_data.get("behavioral_score"),
+                assessment_data.get("communication_score"),
+                assessment_data.get("cultural_fit_score"),
+                assessment_data.get("problem_solving_score"),
+                assessment_data.get("expected_salary"),
+                assessment_data.get("negotiated_salary"),
+                verdict,
+                assessment_data.get("verdict_reasoning", ""),
+                assessment_data.get("key_strengths", []),
+                assessment_data.get("areas_of_improvement", []),
+                json.dumps(assessment_data.get("round_summaries", [])),
+                json.dumps(assessment_data),
+            )
 
-        OPTIONAL_COLUMNS = {
-            "communication_score": assessment_data.get("communication_score"),
-            "cultural_fit_score": assessment_data.get("cultural_fit_score"),
-            "problem_solving_score": assessment_data.get("problem_solving_score"),
-            "expected_salary": assessment_data.get("expected_salary"),
-            "negotiated_salary": assessment_data.get("negotiated_salary"),
-            "verdict_reasoning": assessment_data.get("verdict_reasoning", ""),
-            "key_strengths": assessment_data.get("key_strengths", []),
-            "areas_of_improvement": assessment_data.get("areas_of_improvement", []),
-            "round_summaries": assessment_data.get("round_summaries", []),
-        }
+            # Update interview status
+            iv_status = "cancelled" if termination_reason == "tab_guard" else "completed"
+            await conn.execute(
+                "UPDATE interviews SET status = $1 WHERE id = $2",
+                iv_status, interview_id,
+            )
 
-        try:
-            supabase.table("assessments").insert({**insert_row, **OPTIONAL_COLUMNS}).execute()
-        except Exception as col_err:
-            logger.warning(f"Full insert failed ({col_err}); retrying with base columns only.")
-            supabase.table("assessments").insert(insert_row).execute()
+            if is_verification:
+                # Save verification result to profile
+                from app.services.verification import save_verification_result
+                await save_verification_result(
+                    interview_id=interview_id,
+                    candidate_id=candidate_id,
+                    overall_score=overall_score,
+                    assessment=assessment_data,
+                )
+            elif app_id:
+                await conn.execute(
+                    "UPDATE applications SET status = $1 WHERE id = $2",
+                    ApplicationStatus.INTERVIEWED.value, app_id,
+                )
 
-        # 5. Update interview status
-        interview_status = (
-            InterviewStatus.CANCELLED.value
-            if termination_reason == "tab_guard"
-            else InterviewStatus.COMPLETED.value
-        )
-        try:
-            supabase.table("interviews").update(
-                {"status": interview_status}
-            ).eq("id", interview_id).execute()
-        except Exception as e:
-            logger.warning(f"Interview status update skipped: {e}")
-
-        # 6. Update application status
-        app_id = application.get("id") or data.get("application_id")
-        if app_id:
-            try:
-                # Force status to 'interviewed'
-                supabase.table("applications").update(
-                    {"status": ApplicationStatus.INTERVIEWED.value}
-                ).eq("id", app_id).execute()
-                logger.info(f"[Assessment] Updated application {app_id} to status 'interviewed'")
-            except Exception as e:
-                logger.warning(f"[Assessment] Failed to update application {app_id} status: {e}")
-
-        # 7. Notify recruiter
-        recruiter_email = recruiter.get("email")
-        if recruiter_email:
+        # ── Notify recruiter (job interviews only) ────────────────────────────
+        if recruiter_email and not is_verification:
             dashboard_link = f"{settings.FRONTEND_URL}/recruiter/assessments/{interview_id}"
             sr = assessment_data.get("security_report") or {}
-            shield_line = ""
-            if isinstance(sr, dict):
-                tl = sr.get("shield_alert_timeline") or []
-                if isinstance(tl, list) and tl:
-                    shield_line = str(tl[0])[:240]
-                else:
-                    fv = sr.get("final_security_verdict", "clear")
-                    shield_line = f"AI Shield verdict: {fv}"
+            shield_line = sr.get("final_security_verdict", "clear")
             await send_assessment_ready(
                 to_email=recruiter_email,
-                recruiter_name=recruiter.get("full_name") or recruiter.get("name") or "Recruiter",
+                recruiter_name="Recruiter",
                 candidate_name=candidate_name,
-                job_title=job.get("title", "Unknown Role"),
-                overall_score=int(assessment_data.get("overall_score") or 0),
+                job_title=job_data.get("title", "Unknown Role"),
+                overall_score=int(overall_score),
                 verdict=verdict,
                 dashboard_link=dashboard_link,
-                technical_score=int(assessment_data["technical_score"]) if assessment_data.get("technical_score") is not None else None,
-                behavioral_score=int(assessment_data["behavioral_score"]) if assessment_data.get("behavioral_score") is not None else None,
-                communication_score=int(assessment_data["communication_score"]) if assessment_data.get("communication_score") is not None else None,
-                cultural_fit_score=int(assessment_data["cultural_fit_score"]) if assessment_data.get("cultural_fit_score") is not None else None,
-                problem_solving_score=int(assessment_data["problem_solving_score"]) if assessment_data.get("problem_solving_score") is not None else None,
-                security_summary=shield_line or "No critical AI Shield alerts.",
+                technical_score=int(assessment_data["technical_score"]) if assessment_data.get("technical_score") is not None else 0,
+                behavioral_score=int(assessment_data["behavioral_score"]) if assessment_data.get("behavioral_score") is not None else 0,
+                communication_score=int(assessment_data["communication_score"]) if assessment_data.get("communication_score") is not None else 0,
+                cultural_fit_score=int(assessment_data["cultural_fit_score"]) if assessment_data.get("cultural_fit_score") is not None else 0,
+                problem_solving_score=int(assessment_data["problem_solving_score"]) if assessment_data.get("problem_solving_score") is not None else 0,
+                security_summary=f"AI Shield verdict: {shield_line}",
             )
 
-        # 8. Notify candidate
-        candidate_email = candidate.get("email")
+        # ── Notify candidate ──────────────────────────────────────────────────
         if candidate_email:
-            candidate_dashboard_link = f"{settings.FRONTEND_URL}/candidate/scorecard/{interview_id}"
-            await send_candidate_scorecard_email(
-                to_email=candidate_email,
-                candidate_name=candidate_name,
-                job_title=job.get("title", "Unknown Role"),
-                overall_score=int(assessment_data.get("overall_score") or 0),
-                scorecard_link=candidate_dashboard_link,
-            )
+            if is_verification:
+                from app.services.verification import send_verification_complete_email
+                passed = overall_score >= 40.0
+                await send_verification_complete_email(
+                    to_email=candidate_email,
+                    candidate_name=candidate_name,
+                    overall_score=overall_score,
+                    passed=passed,
+                    interview_id=interview_id,
+                )
+            else:
+                scorecard_link = f"{settings.FRONTEND_URL}/candidate/scorecard/{interview_id}"
+                await send_candidate_scorecard_email(
+                    to_email=candidate_email,
+                    candidate_name=candidate_name,
+                    job_title=job_data.get("title", "Unknown Role"),
+                    overall_score=int(overall_score),
+                    scorecard_link=scorecard_link,
+                )
 
-        logger.info(f"[OK] Assessment completed for interview {interview_id} [{termination_reason}]")
+        logger.info(f"[OK] Assessment done for {interview_id} [{termination_reason}]")
 
     except Exception as e:
-        logger.error(f"[FAIL] Background assessment task failed: {e}")
+        import traceback
+        traceback.print_exc()
+        logger.error(f"[FAIL] Assessment task failed for {interview_id}: {e}")

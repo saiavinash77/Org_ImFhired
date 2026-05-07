@@ -122,6 +122,7 @@ infra/terraform/tfplan
 
 
 # Added tests
+backend/test_db.py
 backend/test_analytics.py
 backend/test_assessment.py
 backend/test_db_data.py

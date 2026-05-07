@@ -18,6 +18,34 @@ from app.services.s3_utils import generate_presigned_url_if_s3
 router = APIRouter()
 
 
+def ensure_user_profile_rows(supabase, current_user: dict) -> dict:
+    """Ensure public.users/public.profiles rows exist for a valid JWT user."""
+    user_id = current_user["sub"]
+    role = current_user.get("role", "candidate")
+    fallback_email = current_user.get("email") or f"user_{user_id[:8]}@restored.local"
+
+    supabase.table("users").upsert({
+        "id": user_id,
+        "email": fallback_email,
+        "role": role,
+    }).execute()
+
+    profile_res = supabase.table("profiles").select("*").eq("id", user_id).execute()
+    if profile_res.data:
+        return profile_res.data[0]
+
+    created = supabase.table("profiles").upsert({
+        "id": user_id,
+        "full_name": "Restored User",
+        "skills": [],
+    }).execute()
+    return created.data[0] if created.data else {
+        "id": user_id,
+        "full_name": "Restored User",
+        "skills": [],
+    }
+
+
 async def upload_profile_resume_to_s3(file: UploadFile, user_id: str) -> str:
     """Upload resume file to AWS S3 under the user's profile and return public URL."""
     try:
@@ -51,12 +79,7 @@ async def upload_profile_resume_to_s3(file: UploadFile, user_id: str) -> str:
 async def get_my_profile(current_user: dict = Depends(get_current_user)):
     """Get the currently logged-in user's profile, including parsed AI insights."""
     supabase = get_supabase()
-    result = supabase.table("profiles").select("*").eq("id", current_user["sub"]).single().execute()
-    
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Profile not found.")
-        
-    profile_data = result.data
+    profile_data = ensure_user_profile_rows(supabase, current_user)
     profile_data["resume_url"] = generate_presigned_url_if_s3(profile_data.get("resume_url"))
     return profile_data
 
@@ -72,7 +95,8 @@ async def update_my_profile(
     update_dict = data.dict(exclude_unset=True)
     if not update_dict:
         raise HTTPException(status_code=400, detail="No fields provided to update.")
-        
+
+    ensure_user_profile_rows(supabase, current_user)
     result = supabase.table("profiles").update(update_dict).eq("id", current_user["sub"]).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Failed to update profile.")
@@ -207,6 +231,7 @@ async def upload_and_parse_resume(
             print(f"ERROR: AI Parsing failed for profile {user_id}: {e}")
             
     # 5. Save to database
+    ensure_user_profile_rows(supabase, current_user)
     update_data: dict[str, Any] = {
         "resume_url": resume_url,
     }

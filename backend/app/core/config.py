@@ -1,22 +1,21 @@
-"""Application configuration using Pydantic BaseSettings."""
+"""Application configuration — AWS-native, no Supabase."""
 from typing import List, Optional
 from pydantic_settings import BaseSettings
 from functools import lru_cache
-import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-env_path = str(Path(__file__).resolve().parent.parent.parent / ".env")
-load_dotenv(dotenv_path=env_path, override=True)
+load_dotenv(dotenv_path=str(Path(__file__).resolve().parent.parent.parent / ".env"), override=True)
+
 
 class Settings(BaseSettings):
-    # App
+    # ── App ───────────────────────────────────────────────────
     APP_NAME: str = "HireAI"
     APP_ENV: str = "development"
     DEBUG: bool = True
     USE_REDIS: bool = False
-    
-    # Server
+
+    # ── Server ────────────────────────────────────────────────
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     ALLOWED_ORIGINS: List[str] = [
@@ -25,68 +24,70 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3002",
         "https://hireai.vercel.app",
         "https://hiring.ashishai.in",
-        "https://ashishai.in",
     ]
-    
-    # Supabase
-    SUPABASE_URL: str = ""
-    SUPABASE_KEY: str = ""
-    SUPABASE_SERVICE_KEY: str = ""
-    
-    # JWT
-    SECRET_KEY: str = "your-secret-key-change-in-production"
+
+    # ── Database (AWS RDS PostgreSQL) ─────────────────────────
+    # Format: postgresql://user:password@host:5432/dbname
+    DATABASE_URL: str = ""
+
+    # ── AWS Cognito ───────────────────────────────────────────
+    COGNITO_USER_POOL_ID: str = ""
+    COGNITO_CLIENT_ID: str = ""
+    # Client secret is optional (only needed for server-side auth flows)
+    COGNITO_CLIENT_SECRET: str = ""
+
+    # ── JWT (issued by this backend after Cognito verification) ──
+    SECRET_KEY: str = "change-me-in-production-min-32-chars"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
-    
-    # OpenAI
+
+    # ── OpenAI ────────────────────────────────────────────────
     OPENAI_API_KEY: str = ""
+    GROQ_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o"
     OPENAI_REALTIME_MODEL: str = "gpt-4o-realtime-preview"
-    
-    # Redis
+
+    # ── Redis (AWS ElastiCache) ───────────────────────────────
     REDIS_URL: str = "redis://localhost:6379"
-    REDIS_TTL: int = 3600  # 1 hour
-    
-    # AWS
+    REDIS_TTL: int = 3600
+
+    # ── AWS General ───────────────────────────────────────────
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
     AWS_REGION: str = "ap-south-1"
+
+    # ── AWS S3 ────────────────────────────────────────────────
     AWS_S3_BUCKET: str = "hireai-uploads"
+
+    # ── AWS SES (email) ───────────────────────────────────────
     AWS_SES_FROM_EMAIL: str = "noreply@hireai.com"
-    
-    # Resend
+    # Resend is kept as fallback
     RESEND_API_KEY: str = ""
-    
-    # SMTP (Alternative to SES)
+
+    # ── SMTP fallback ─────────────────────────────────────────
     USE_SMTP: bool = False
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
     SMTP_FROM_NAME: str = "HireAI"
-    
-    # Langfuse
+
+    # ── Langfuse (observability) ──────────────────────────────
     LANGFUSE_SECRET_KEY: str = ""
     LANGFUSE_PUBLIC_KEY: str = ""
     LANGFUSE_HOST: str = "https://cloud.langfuse.com"
-    
-    # Interview Settings
-    MATCH_THRESHOLD: float = 0.20  # Default to 20%
-    INTERVIEW_ROOM_EXPIRY: int = 7200  # 2 hours
-    MAX_INTERVIEW_DURATION: int = 5400  # 90 minutes
-    # QA: compress realtime rounds — advance a phase after this many seconds in the
-    # current phase once the AI has spoken at least once (still respects full turn count).
-    # Example: INTERVIEW_FAST_TEST=true + INTERVIEW_FAST_PHASE_SECONDS=15 → ~4×15s ≈ 1 min total.
+
+    # ── Interview settings ────────────────────────────────────
+    MATCH_THRESHOLD: float = 0.20
+    INTERVIEW_ROOM_EXPIRY: int = 7200
+    MAX_INTERVIEW_DURATION: int = 5400
     INTERVIEW_FAST_TEST: bool = False
     INTERVIEW_FAST_PHASE_SECONDS: int = 15
-    
-    # Frontend
+
+    # ── Frontend ──────────────────────────────────────────────
     FRONTEND_URL: str = "http://localhost:3002"
 
     class Config:
-        import os
-        from pathlib import Path
-        # Look for .env in the backend directory specifically
         env_file = str(Path(__file__).resolve().parent.parent.parent / ".env")
         env_file_encoding = "utf-8"
         extra = "ignore"
