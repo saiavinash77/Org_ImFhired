@@ -10,7 +10,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, BackgroundTasks
 from typing import Optional
 
-from app.core.database import get_pg_pool, get_redis
+from app.core.database import get_pg_pool, get_redis, row_to_dict
 from app.core.config import settings
 from app.schemas.schemas import ApplicationResponse, ApplyResponse, ApplicationStatus
 from app.services.resume_parser import resume_parser
@@ -115,7 +115,7 @@ async def run_screening_pipeline(
                         job_id,
                     )
                 if job:
-                    jd_data = dict(job)
+                    jd_data = row_to_row_to_dict(job)
                 else:
                     print(f"WARN: Job {job_id} not found during screening")
             except Exception as e:
@@ -480,7 +480,7 @@ async def get_application_status(application_id: str):
         )
     if not result:
         raise HTTPException(status_code=404, detail="Application not found.")
-    app_data = dict(result)
+    app_data = row_to_row_to_dict(result)
     app_data["resume_url"] = generate_presigned_url_if_s3(app_data.get("resume_url"))
     return app_data
 
@@ -542,7 +542,7 @@ async def list_applications(
             """,
             *params,
         )
-    apps = [dict(r) for r in rows]
+    apps = [row_to_row_to_dict(r) for r in rows]
     
     # 1. Fetch all assessment IDs for these applications to ensure status sync
     app_ids = [a["id"] for a in apps] if apps else []
@@ -574,7 +574,7 @@ async def list_applications(
                 "SELECT id, full_name, phone FROM profiles WHERE id = ANY($1::uuid[])",
                 candidate_ids,
             )
-        profiles_map = {p["id"]: dict(p) for p in profiles_res}
+        profiles_map = {p["id"]: row_to_row_to_dict(p) for p in profiles_res}
     
     for app in apps:
         app["resume_url"] = generate_presigned_url_if_s3(app.get("resume_url"))
@@ -629,7 +629,7 @@ async def list_my_applications(
             """,
             current_user["sub"],
         )
-    apps = [dict(r) for r in rows]
+    apps = [row_to_row_to_dict(r) for r in rows]
     for app in apps:
         app["resume_url"] = generate_presigned_url_if_s3(app.get("resume_url"))
     return apps

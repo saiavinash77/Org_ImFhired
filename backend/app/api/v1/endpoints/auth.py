@@ -99,7 +99,6 @@ async def register(data: UserCreate):
             "UserAttributes": [
                 {"Name": "email", "Value": data.email},
                 {"Name": "email_verified", "Value": "true"},
-                {"Name": "custom:role", "Value": data.role.value},
                 {"Name": "name", "Value": data.full_name},
             ],
         }

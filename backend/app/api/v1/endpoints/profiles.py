@@ -8,7 +8,7 @@ import boto3
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, BackgroundTasks
 from typing import Optional, Any
 
-from app.core.database import get_pg_pool
+from app.core.database import get_pg_pool, row_to_dict
 from app.core.config import settings
 from app.schemas.schemas import ProfileResponse, ProfileUpdate
 from app.api.v1.endpoints.auth import get_current_user
@@ -39,7 +39,7 @@ async def ensure_user_profile_rows(conn, current_user: dict) -> dict:
 
     profile = await conn.fetchrow("SELECT * FROM profiles WHERE id = $1 LIMIT 1", user_id)
     if profile:
-        return dict(profile)
+        return row_to_row_to_dict(profile)
 
     created = await conn.fetchrow(
         """
@@ -52,7 +52,7 @@ async def ensure_user_profile_rows(conn, current_user: dict) -> dict:
         "Restored User",
         [],
     )
-    return dict(created) if created else {"id": user_id, "full_name": "Restored User", "skills": []}
+    return row_to_row_to_dict(created) if created else {"id": user_id, "full_name": "Restored User", "skills": []}
 
 
 async def upload_profile_resume_to_s3(file: UploadFile, user_id: str) -> str:
@@ -116,7 +116,7 @@ async def update_my_profile(
         )
     if not row:
         raise HTTPException(status_code=404, detail="Failed to update profile.")
-    return dict(row)
+    return row_to_row_to_dict(row)
 
 async def upload_profile_avatar_to_s3(file: UploadFile, user_id: str) -> str:
     """Upload avatar to S3 or return fallback."""
@@ -162,7 +162,7 @@ async def upload_avatar(
         )
     if not result:
         raise HTTPException(status_code=500, detail="Failed to save avatar Updates.")
-    return dict(result)
+    return row_to_row_to_dict(result)
 
 
 
@@ -254,7 +254,7 @@ async def upload_and_parse_resume(
         )
     if not row:
         raise HTTPException(status_code=500, detail="Failed to save profile updates.")
-    profile_data = dict(row)
+    profile_data = row_to_row_to_dict(row)
     profile_data["resume_url"] = generate_presigned_url_if_s3(profile_data.get("resume_url"))
     return profile_data
 
@@ -289,7 +289,7 @@ async def delete_my_resume(current_user: dict = Depends(get_current_user)):
         )
     if not result:
         raise HTTPException(status_code=404, detail="Profile not found.")
-    return dict(result)
+    return row_to_row_to_dict(result)
 
 
 @router.get("/talent-pool", response_model=list[ProfileResponse])
@@ -321,7 +321,7 @@ async def view_talent_pool(current_user: dict = Depends(get_current_user)):
             """,
             candidate_ids,
         )
-    profiles = [dict(r) for r in profiles_rows]
+    profiles = [row_to_row_to_dict(r) for r in profiles_rows]
     for p in profiles:
         p["resume_url"] = generate_presigned_url_if_s3(p.get("resume_url"))
     return profiles

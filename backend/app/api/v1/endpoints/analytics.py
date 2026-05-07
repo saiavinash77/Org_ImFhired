@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.core.database import get_pg_pool
+from app.core.database import get_pg_pool, row_to_dict
 from app.api.v1.endpoints.auth import get_current_user
 from app.services.s3_utils import generate_presigned_url_if_s3
 
@@ -55,7 +55,7 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
             """,
             job_ids,
         )
-    apps_data = [dict(r) for r in apps_rows]
+    apps_data = [row_to_row_to_dict(r) for r in apps_rows]
     
     # Fetch candidate profiles
     candidate_ids = list({a["candidate_id"] for a in apps_data if a.get("candidate_id")})
@@ -331,7 +331,7 @@ async def get_analytics_metrics(current_user: dict = Depends(get_current_user), 
             """,
             job_ids,
         )
-    apps_data = [dict(r) for r in apps_rows]
+    apps_data = [row_to_row_to_dict(r) for r in apps_rows]
     
     # Pipeline stages
     applied = len(apps_data)

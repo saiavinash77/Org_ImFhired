@@ -56,12 +56,16 @@ async def get_pg_pool() -> asyncpg.Pool:
 
 
 async def _init_connection(conn: asyncpg.Connection):
-    """Register pgvector type codec on each new connection."""
-    try:
-        await conn.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-    except Exception:
-        pass  # extension may already exist or require superuser — non-fatal
-    # Register vector as a text codec so asyncpg can handle it
+    """Register type codecs on each new connection."""
+    # Register UUID as text so dict(record) returns strings, not UUID objects
+    await conn.set_type_codec(
+        "uuid",
+        encoder=str,
+        decoder=str,
+        schema="pg_catalog",
+        format="text",
+    )
+    # Register vector as text (pgvector)
     try:
         await conn.set_type_codec(
             "vector",
@@ -71,7 +75,7 @@ async def _init_connection(conn: asyncpg.Connection):
             format="text",
         )
     except Exception:
-        pass  # pgvector not installed — skip, embeddings will use fallback
+        pass  # pgvector not installed — skip
 
 
 async def get_redis() -> Optional[redis.Redis]:
@@ -122,3 +126,18 @@ async def close_db():
     if _redis_client:
         await _redis_client.close()
         _redis_client = None
+
+
+def row_to_dict(record) -> dict:
+    """Convert asyncpg Record → plain dict, stringifying UUID fields."""
+    if record is None:
+        return {}
+    result = {}
+    for k, v in dict(record).items():
+        if hasattr(v, "hex"):          # UUID
+            result[k] = str(v)
+        elif isinstance(v, list):      # arrays (e.g. skills, requirements)
+            result[k] = [str(i) if hasattr(i, "hex") else i for i in v]
+        else:
+            result[k] = v
+    return result
