@@ -5,17 +5,19 @@ Core screening pipeline.
 import uuid
 import os
 import tempfile
+import json
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, BackgroundTasks
 from typing import Optional
 
-from app.core.database import get_supabase, get_redis
+from app.core.database import get_pg_pool, get_redis
 from app.core.config import settings
 from app.schemas.schemas import ApplicationResponse, ApplyResponse, ApplicationStatus
 from app.services.resume_parser import resume_parser
 from app.services.matching_engine import get_matching_engine
 from app.services.email_service import send_interview_invite
 from app.services.s3_utils import generate_presigned_url_if_s3
+from app.services.verification import VerificationStatus, VERIFICATION_PASS_THRESHOLD
 from app.api.v1.endpoints.auth import get_current_user
 import boto3
 
@@ -71,14 +73,16 @@ async def run_screening_pipeline(
         print(f"DEBUG_PIPELINE: {msg}")
 
     log(f"🚀 STARTING SCREENING for {candidate_email}")
-    supabase = get_supabase()
+    pool = await get_pg_pool()
 
     try:
         # Update status to screening
         try:
-            supabase.table("applications").update(
-                {"status": "screening"}
-            ).eq("id", application_id).execute()
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE applications SET status = 'screening' WHERE id = $1",
+                    application_id,
+                )
         except Exception as e:
             print(f"WARN: Failed to set screening status: {e}")
         
@@ -95,7 +99,6 @@ async def run_screening_pipeline(
         # Try Redis cache first (only if Redis is available)
         if redis_client is not None:
             try:
-                import json
                 cached = await redis_client.get(jd_cache_key)
                 if cached:
                     jd_data = json.loads(cached)
@@ -106,11 +109,13 @@ async def run_screening_pipeline(
         if not jd_data:
             try:
                 # NOTE: Column is "embedding" in DB, not "requirements_embedding"
-                job = supabase.table("jobs").select(
-                    "title, description, requirements, experience_min"
-                ).eq("id", job_id).single().execute()
-                if job.data:
-                    jd_data = job.data
+                async with pool.acquire() as conn:
+                    job = await conn.fetchrow(
+                        "SELECT title, description, requirements, experience_min FROM jobs WHERE id = $1 LIMIT 1",
+                        job_id,
+                    )
+                if job:
+                    jd_data = dict(job)
                 else:
                     print(f"WARN: Job {job_id} not found during screening")
             except Exception as e:
@@ -119,7 +124,6 @@ async def run_screening_pipeline(
             # Cache for next time (only if Redis is available)
             if jd_data and redis_client is not None:
                 try:
-                    import json
                     await redis_client.setex(jd_cache_key, settings.REDIS_TTL, json.dumps(jd_data))
                 except Exception:
                     pass  # Caching failure is non-fatal
@@ -160,7 +164,19 @@ async def run_screening_pipeline(
             
         try:
             log(f"Step 5: Updating database with score {match_score}")
-            supabase.table("applications").update(update_data).eq("id", application_id).execute()
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE applications
+                    SET ai_score = $1, status = $2, parsed_data = COALESCE($3, parsed_data), resume_summary = COALESCE($4, resume_summary)
+                    WHERE id = $5
+                    """,
+                    update_data.get("ai_score"),
+                    update_data.get("status"),
+                    update_data.get("parsed_data"),
+                    update_data.get("resume_summary"),
+                    application_id,
+                )
             log("Step 5 COMPLETE: Database updated")
         except Exception as e:
             log(f"Step 5 ERROR: {e}")
@@ -172,9 +188,10 @@ async def run_screening_pipeline(
                 # Get job title for the email
                 job_title = jd_data.get("title") or "this role"
                 if not jd_data.get("title"):
-                    job_res = supabase.table("jobs").select("title").eq("id", job_id).single().execute()
-                    if job_res.data:
-                        job_title = job_res.data.get("title", "this role")
+                    async with pool.acquire() as conn:
+                        job_res = await conn.fetchrow("SELECT title FROM jobs WHERE id = $1 LIMIT 1", job_id)
+                    if job_res:
+                        job_title = job_res.get("title", "this role")
 
                 schedule_link = f"{settings.FRONTEND_URL}/candidate/schedule?app_id={application_id}"
                 log(f"Step 6: Sending invite to {candidate_email} (Score: {match_score})")
@@ -200,9 +217,11 @@ async def run_screening_pipeline(
         print(f"ERROR: Screening pipeline failed for {application_id}: {e}")
         traceback.print_exc()
         try:
-            supabase.table("applications").update(
-                {"status": "applied"}
-            ).eq("id", application_id).execute()
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE applications SET status = 'applied' WHERE id = $1",
+                    application_id,
+                )
         except Exception:
             pass
 
@@ -222,7 +241,7 @@ async def apply_for_job(
     Triggers identity/profile creation if needed.
     """
     use_saved = (use_saved_profile or "").strip().lower() in ("true", "1", "yes", "on")
-    supabase = get_supabase()
+    pool = await get_pg_pool()
     
     # 1. Validate inputs based on mode
     if not use_saved and not resume:
@@ -242,28 +261,33 @@ async def apply_for_job(
             )
     
     # 2. Check job exists and is active
-    job = supabase.table("jobs").select("id, is_active").eq("id", job_id).execute()
-    if not job.data or not job.data[0]["is_active"]:
+    async with pool.acquire() as conn:
+        job = await conn.fetchrow("SELECT id, is_active FROM jobs WHERE id = $1 LIMIT 1", job_id)
+    if not job or not job["is_active"]:
         raise HTTPException(status_code=400, detail="Job not found or inactive.")
     
     # 3. Create identity/profile if not exists (guest apply)
-    user_res = supabase.table("users").select("id").eq("email", candidate_email).execute()
-    if user_res.data:
-        candidate_id = user_res.data[0]["id"]
+    async with pool.acquire() as conn:
+        user_res = await conn.fetchrow("SELECT id FROM users WHERE email = $1 LIMIT 1", candidate_email)
+    if user_res:
+        candidate_id = user_res["id"]
     else:
         candidate_id = str(uuid.uuid4())
         try:
-            supabase.table("users").insert({
-                "id": candidate_id,
-                "email": candidate_email,
-                "role": "candidate",
-            }).execute()
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "INSERT INTO users (id, email, role) VALUES ($1, $2, $3)",
+                    candidate_id,
+                    candidate_email,
+                    "candidate",
+                )
         except Exception as e:
             err = str(e).lower()
             if "duplicate" in err or "23505" in err or "unique" in err:
-                retry = supabase.table("users").select("id").eq("email", candidate_email).execute()
-                if retry.data:
-                    candidate_id = retry.data[0]["id"]
+                async with pool.acquire() as conn:
+                    retry = await conn.fetchrow("SELECT id FROM users WHERE email = $1 LIMIT 1", candidate_email)
+                if retry:
+                    candidate_id = retry["id"]
                 else:
                     raise HTTPException(status_code=500, detail="Could not create or resolve candidate account.")
             else:
@@ -274,23 +298,59 @@ async def apply_for_job(
 
     # ALWAYS update/sync profile name and phone from the latest application
     try:
-        supabase.table("profiles").upsert({
-            "id": candidate_id,
-            "full_name": candidate_name,
-            "phone": candidate_phone,
-        }).execute()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO profiles (id, full_name, phone)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (id) DO UPDATE SET
+                    full_name = EXCLUDED.full_name,
+                    phone = EXCLUDED.phone
+                """,
+                candidate_id,
+                candidate_name,
+                candidate_phone,
+            )
     except Exception as e:
         print(f"WARN: Failed to sync profile for {candidate_id}: {e}")
+
+    # Candidate must be verified ONCE before applying.
+    # (Recruiter flow is unchanged; this gate is candidate-side only.)
+    async with pool.acquire() as conn:
+        prof = await conn.fetchrow(
+            """
+            SELECT verification_status, verification_score
+            FROM profiles
+            WHERE id = $1
+            LIMIT 1
+            """,
+            candidate_id,
+        )
+    is_verified = (
+        prof is not None
+        and prof.get("verification_status") == VerificationStatus.COMPLETED
+        and prof.get("verification_score") is not None
+        and float(prof.get("verification_score")) >= float(VERIFICATION_PASS_THRESHOLD)
+    )
+    if not is_verified:
+        raise HTTPException(
+            status_code=403,
+            detail="Verification required before applying. Please complete your verification interview first.",
+        )
         
     # Check if using saved profile but profile has no resume
     saved_resume_url = None
     saved_parsed_data = None
     if use_saved:
-        prof_res = supabase.table("profiles").select("resume_url, parsed_data").eq("id", candidate_id).single().execute()
-        if not prof_res.data or not prof_res.data.get("resume_url"):
+        async with pool.acquire() as conn:
+            prof_res = await conn.fetchrow(
+                "SELECT resume_url, parsed_data FROM profiles WHERE id = $1 LIMIT 1",
+                candidate_id,
+            )
+        if not prof_res or not prof_res.get("resume_url"):
             raise HTTPException(status_code=400, detail="Cannot use saved profile: no resume found on your profile.")
-        saved_resume_url = prof_res.data.get("resume_url")
-        saved_parsed_data = prof_res.data.get("parsed_data")
+        saved_resume_url = prof_res.get("resume_url")
+        saved_parsed_data = prof_res.get("parsed_data")
     
     # 4. Upload resume & create application record
     application_id = str(uuid.uuid4())
@@ -305,13 +365,18 @@ async def apply_for_job(
             pass
 
     try:
-        supabase.table("applications").insert({
-            "id": application_id,
-            "job_id": job_id,
-            "candidate_id": candidate_id,
-            "resume_url": resume_url,
-            "status": "applied",
-        }).execute()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO applications (id, job_id, candidate_id, resume_url, status)
+                VALUES ($1, $2, $3, $4, $5)
+                """,
+                application_id,
+                job_id,
+                candidate_id,
+                resume_url,
+                "applied",
+            )
     except Exception as e:
         # Check if it's a duplicate key error
         err_str = str(e)
@@ -352,9 +417,12 @@ async def apply_for_job(
     # Update application with saved parsed data if available BEFORE screening runs
     if use_saved and saved_parsed_data:
         try:
-            supabase.table("applications").update({
-                "parsed_data": saved_parsed_data
-            }).eq("id", application_id).execute()
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE applications SET parsed_data = $1 WHERE id = $2",
+                    saved_parsed_data,
+                    application_id,
+                )
         except Exception:
             pass
     
@@ -374,9 +442,13 @@ async def apply_for_job(
         traceback.print_exc()
     
     # Fetch final updated data
-    final_row = supabase.table("applications").select("ai_score, status").eq("id", application_id).single().execute()
-    final_score = final_row.data.get("ai_score") or 0.0
-    final_status = final_row.data.get("status") or ApplicationStatus.APPLIED
+    async with pool.acquire() as conn:
+        final_row = await conn.fetchrow(
+            "SELECT ai_score, status FROM applications WHERE id = $1 LIMIT 1",
+            application_id,
+        )
+    final_score = final_row.get("ai_score") if final_row else 0.0
+    final_status = (final_row.get("status") if final_row else None) or ApplicationStatus.APPLIED
     
     is_invited = final_score >= settings.MATCH_THRESHOLD
     
@@ -392,12 +464,23 @@ async def apply_for_job(
 @router.get("/{application_id}/status", response_model=ApplicationResponse)
 async def get_application_status(application_id: str):
     """Poll application status."""
-    supabase = get_supabase()
-    result = supabase.table("applications").select("*, jobs(title)").eq("id", application_id).single().execute()
-    if not result.data:
+    pool = await get_pg_pool()
+    async with pool.acquire() as conn:
+        result = await conn.fetchrow(
+            """
+            SELECT
+                a.*,
+                json_build_object('title', j.title) AS jobs
+            FROM applications a
+            LEFT JOIN jobs j ON j.id = a.job_id
+            WHERE a.id = $1
+            LIMIT 1
+            """,
+            application_id,
+        )
+    if not result:
         raise HTTPException(status_code=404, detail="Application not found.")
-    
-    app_data = result.data
+    app_data = dict(result)
     app_data["resume_url"] = generate_presigned_url_if_s3(app_data.get("resume_url"))
     return app_data
 
@@ -412,35 +495,73 @@ async def list_applications(
     if current_user["role"] not in ("recruiter", "admin"):
         raise HTTPException(status_code=403, detail="Access denied.")
     
-    supabase = get_supabase()
+    pool = await get_pg_pool()
     
     # Restrict to recruiter's jobs
     if current_user["role"] == "recruiter":
-        jobs_res = supabase.table("jobs").select("id").eq("recruiter_id", current_user["sub"]).execute()
-        job_ids = [j["id"] for j in jobs_res.data]
+        async with pool.acquire() as conn:
+            jobs_res = await conn.fetch("SELECT id FROM jobs WHERE recruiter_id = $1", current_user["sub"])
+        job_ids = [j["id"] for j in jobs_res]
         if not job_ids:
             return []
-            
-        query = supabase.table("applications").select("*, jobs(title, location), users(email), interviews(scheduled_at)").in_("job_id", job_ids)
+        job_ids_filter = job_ids
     else:
-        query = supabase.table("applications").select("*, jobs(title, location), users(email), interviews(scheduled_at)")
-    
-    if job_id: query = query.eq("job_id", job_id)
-    if status: query = query.eq("status", status)
-    
-    result = query.order("created_at", desc=True).execute()
-    apps = result.data
+        job_ids_filter = None
+
+    where_parts = []
+    params = []
+    idx = 1
+    if job_ids_filter is not None:
+        where_parts.append(f"a.job_id = ANY(${idx}::uuid[])")
+        params.append(job_ids_filter)
+        idx += 1
+    if job_id:
+        where_parts.append(f"a.job_id = ${idx}")
+        params.append(job_id)
+        idx += 1
+    if status:
+        where_parts.append(f"a.status = ${idx}")
+        params.append(status)
+    where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"""
+            SELECT
+                a.*,
+                json_build_object('title', j.title, 'location', j.location) AS jobs,
+                json_build_object('email', u.email) AS users,
+                COALESCE((
+                    SELECT json_agg(json_build_object('scheduled_at', i.scheduled_at))
+                    FROM interviews i WHERE i.application_id = a.id
+                ), '[]'::json) AS interviews
+            FROM applications a
+            LEFT JOIN jobs j ON j.id = a.job_id
+            LEFT JOIN users u ON u.id = a.candidate_id
+            {where_sql}
+            ORDER BY a.created_at DESC
+            """,
+            *params,
+        )
+    apps = [dict(r) for r in rows]
     
     # 1. Fetch all assessment IDs for these applications to ensure status sync
     app_ids = [a["id"] for a in apps] if apps else []
     if app_ids:
         # Check assessments table for any assessments linked to these application IDs (via interviews)
-        assessments_res = supabase.table("assessments").select("interview_id, interviews(application_id)").execute()
+        async with pool.acquire() as conn:
+            assessments_res = await conn.fetch(
+                """
+                SELECT a.interview_id, i.application_id
+                FROM assessments a
+                LEFT JOIN interviews i ON i.id = a.interview_id
+                WHERE i.application_id = ANY($1::uuid[])
+                """,
+                app_ids,
+            )
         interviewed_app_ids = set()
-        for ass in (assessments_res.data or []):
-            inter = ass.get("interviews")
-            if inter and inter.get("application_id") in app_ids:
-                interviewed_app_ids.add(inter["application_id"])
+        for ass in (assessments_res or []):
+            if ass.get("application_id") in app_ids:
+                interviewed_app_ids.add(ass["application_id"])
     else:
         interviewed_app_ids = set()
 
@@ -448,8 +569,12 @@ async def list_applications(
     candidate_ids = list({a["candidate_id"] for a in apps if a.get("candidate_id")})
     profiles_map = {}
     if candidate_ids:
-        profiles_res = supabase.table("profiles").select("id, full_name, phone").in_("id", candidate_ids).execute()
-        profiles_map = {p["id"]: p for p in profiles_res.data}
+        async with pool.acquire() as conn:
+            profiles_res = await conn.fetch(
+                "SELECT id, full_name, phone FROM profiles WHERE id = ANY($1::uuid[])",
+                candidate_ids,
+            )
+        profiles_map = {p["id"]: dict(p) for p in profiles_res}
     
     for app in apps:
         app["resume_url"] = generate_presigned_url_if_s3(app.get("resume_url"))
@@ -490,15 +615,21 @@ async def list_my_applications(
     current_user: dict = Depends(get_current_user),
 ):
     """List applications for the current candidate."""
-    supabase = get_supabase()
-    result = (
-        supabase.table("applications")
-        .select("*, jobs(title, location)")
-        .eq("candidate_id", current_user["sub"])
-        .order("created_at", desc=True)
-        .execute()
-    )
-    apps = result.data
+    pool = await get_pg_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                a.*,
+                json_build_object('title', j.title, 'location', j.location) AS jobs
+            FROM applications a
+            LEFT JOIN jobs j ON j.id = a.job_id
+            WHERE a.candidate_id = $1
+            ORDER BY a.created_at DESC
+            """,
+            current_user["sub"],
+        )
+    apps = [dict(r) for r in rows]
     for app in apps:
         app["resume_url"] = generate_presigned_url_if_s3(app.get("resume_url"))
     return apps

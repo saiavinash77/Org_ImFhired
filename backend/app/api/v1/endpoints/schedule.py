@@ -1,11 +1,12 @@
 """Scheduling endpoints — slot listing and booking."""
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List
 from fastapi import APIRouter, HTTPException
-from app.core.database import get_supabase
 from app.schemas.schemas import TimeSlot, BookSlotRequest, ScheduleResponse
 from app.services.email_service import send_calendar_invite
+from app.core.database import get_pg_pool
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -36,25 +37,42 @@ def generate_slots(days_ahead: int = 7) -> List[TimeSlot]:
 @router.get("/slots", response_model=List[TimeSlot])
 async def get_available_slots(application_id: str):
     """Get available interview time slots."""
-    supabase = get_supabase()
-    
-    from app.core.config import settings
+    pool = await get_pg_pool()
+
     # Verify application exists and meets threshold
-    app = supabase.table("applications").select("id, status, ai_score").eq("id", application_id).execute()
-    if not app.data:
+    async with pool.acquire() as conn:
+        app_row = await conn.fetchrow(
+            "SELECT id, status, ai_score FROM applications WHERE id = $1 LIMIT 1",
+            application_id,
+        )
+
+    if not app_row:
         raise HTTPException(status_code=404, detail="Application not found.")
-    
-    ai_score = app.data[0].get("ai_score") or 0.0
+
+    ai_score = app_row.get("ai_score") or 0.0
     if ai_score < settings.MATCH_THRESHOLD:
         raise HTTPException(status_code=403, detail="Your fit score does not meet the minimum requirement to schedule an interview.")
-    
+
     # Get already-booked slots to exclude
-    booked = supabase.table("interviews").select("scheduled_at").eq("status", "scheduled").execute()
-    booked_times = {row["scheduled_at"] for row in (booked.data or [])}
-    
+    async with pool.acquire() as conn:
+        booked_rows = await conn.fetch(
+            "SELECT scheduled_at FROM interviews WHERE status = 'scheduled'",
+        )
+
+    # Normalize to naive UTC minutes so we can compare with generate_slots output
+    booked_times: set[str] = set()
+    for row in booked_rows or []:
+        dt = row["scheduled_at"]
+        if dt is None:
+            continue
+        if getattr(dt, "tzinfo", None) is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        dt = dt.replace(second=0, microsecond=0)
+        booked_times.add(dt.isoformat())
+
     slots = generate_slots()
     for slot in slots:
-        if slot.start_time.isoformat() in booked_times:
+        if slot.start_time.replace(second=0, microsecond=0).isoformat() in booked_times:
             slot.available = False
     
     return [s for s in slots if s.available]
@@ -63,56 +81,47 @@ async def get_available_slots(application_id: str):
 @router.post("/book", response_model=ScheduleResponse)
 async def book_slot(data: BookSlotRequest):
     """Book an interview slot."""
-    supabase = get_supabase()
-    
+
+    pool = await get_pg_pool()
+
     # ── Step 1: Verify the application exists (SIMPLE query, no joins) ──
-    try:
-        app_result = supabase.table("applications").select(
-            "id, candidate_id, job_id"
-        ).eq("id", data.application_id).single().execute()
-    except Exception as e:
-        print(f"ERROR book_slot: application query failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Could not find application: {e}")
-    
-    if not app_result.data:
+    async with pool.acquire() as conn:
+        app_row = await conn.fetchrow(
+            "SELECT id, candidate_id, job_id FROM applications WHERE id = $1 LIMIT 1",
+            data.application_id,
+        )
+
+    if not app_row:
         raise HTTPException(status_code=404, detail="Application not found.")
-    
-    application = app_result.data
-    candidate_id = application["candidate_id"]
-    job_id = application["job_id"]
-    
+
+    candidate_id = app_row["candidate_id"]
+    job_id = app_row["job_id"]
+
     # ── Step 2: Get candidate name + email separately (simple queries) ──
-    candidate_email = ""
-    candidate_name = ""
-    job_title = "Interview"
-    
-    try:
-        user_row = supabase.table("users").select("email").eq("id", candidate_id).single().execute()
-        if user_row.data:
-            candidate_email = user_row.data.get("email", "")
-    except Exception as e:
-        print(f"WARN book_slot: user query failed: {e}")
-    
-    try:
-        profile_row = supabase.table("profiles").select("full_name").eq("id", candidate_id).single().execute()
-        if profile_row.data:
-            candidate_name = profile_row.data.get("full_name", "")
-    except Exception as e:
-        print(f"WARN book_slot: profile query failed: {e}")
-    
+    async with pool.acquire() as conn:
+        user_row = await conn.fetchrow(
+            "SELECT email FROM users WHERE id = $1 LIMIT 1",
+            candidate_id,
+        )
+        profile_row = await conn.fetchrow(
+            "SELECT full_name FROM profiles WHERE id = $1 LIMIT 1",
+            candidate_id,
+        )
+        job_row = await conn.fetchrow(
+            "SELECT title FROM jobs WHERE id = $1 LIMIT 1",
+            job_id,
+        )
+
+    candidate_email = user_row.get("email") if user_row else ""
+    candidate_name = profile_row.get("full_name") if profile_row else ""
+    job_title = job_row.get("title") if job_row else "Interview"
+
     # Fallback to email local part if name is missing
     if not candidate_name and candidate_email:
         candidate_name = candidate_email.split("@")[0].replace(".", " ").title()
     if not candidate_name:
         candidate_name = "Candidate"
-    
-    try:
-        job_row = supabase.table("jobs").select("title").eq("id", job_id).single().execute()
-        if job_row.data:
-            job_title = job_row.data.get("title", "Interview")
-    except Exception as e:
-        print(f"WARN book_slot: job query failed: {e}")
-    
+
     # ── Step 3: Parse slot time ──
     try:
         scheduled_at = datetime.strptime(data.slot_id, "%Y%m%d-%H%M")
@@ -123,28 +132,34 @@ async def book_slot(data: BookSlotRequest):
     interview_id = str(uuid.uuid4())
     unique_token = str(uuid.uuid4()).replace("-", "")
     interview_link = f"/candidate/room/{interview_id}?token={unique_token}"
-    
-    try:
-        supabase.table("interviews").insert({
-            "id": interview_id,
-            "application_id": data.application_id,
-            "scheduled_at": scheduled_at.isoformat(),
-            "status": "scheduled",
-            "unique_link": unique_token,
-        }).execute()
-    except Exception as e:
-        print(f"ERROR book_slot: interview insert failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to create interview: {e}")
-    
+
+    # ── Step 4: Create interview record ──
+    async with pool.acquire() as conn:
+        try:
+            await conn.execute(
+                """
+                INSERT INTO interviews (id, application_id, scheduled_at, status, unique_link)
+                VALUES ($1, $2, $3, 'scheduled', $4)
+                """,
+                interview_id,
+                data.application_id,
+                scheduled_at,
+                unique_token,
+            )
+        except Exception as e:
+            print(f"ERROR book_slot: interview insert failed: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to create interview: {e}")
+
     # ── Step 5: Update application status to 'scheduled' ──
     try:
-        supabase.table("applications").update(
-            {"status": "scheduled"}
-        ).eq("id", data.application_id).execute()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE applications SET status = 'scheduled' WHERE id = $1",
+                data.application_id,
+            )
     except Exception as e:
-        # If this fails it's likely the DB CHECK constraint issue
-        print(f"ERROR book_slot: status update failed (CHECK constraint?): {e}")
-        # Don't crash — interview was already created
+        # Non-fatal; interview was already created
+        print(f"WARN book_slot: application status update failed: {e}")
     
     # ── Step 6: Send calendar invite (NEVER block booking) ──
     calendar_sent = False

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.core.database import get_supabase
+from app.core.database import get_pg_pool
 from app.api.v1.endpoints.auth import get_current_user
 from app.services.s3_utils import generate_presigned_url_if_s3
 
@@ -17,32 +17,56 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ("recruiter", "admin"):
         raise HTTPException(status_code=403, detail="Recruiter access required.")
 
-    supabase = get_supabase()
+    pool = await get_pg_pool()
     
     # Simple count fetching using select with count='exact' isn't totally clean in python client,
     # so we'll fetch all relevant rows and count, which is fine for this MVP size.
     
     # Active Jobs
-    jobs_res = supabase.table("jobs").select("id, status").eq("recruiter_id", current_user["sub"]).eq("is_active", True).execute()
-    active_jobs_count = len(jobs_res.data)
+    async with pool.acquire() as conn:
+        jobs_rows = await conn.fetch(
+            "SELECT id, status FROM jobs WHERE recruiter_id = $1 AND is_active = TRUE",
+            current_user["sub"],
+        )
+    active_jobs_count = len(jobs_rows)
     
     # All applications for recruiter's jobs
     # First, get recruiter job ids
-    my_jobs = supabase.table("jobs").select("id").eq("recruiter_id", current_user["sub"]).execute()
-    job_ids = [j["id"] for j in my_jobs.data]
+    async with pool.acquire() as conn:
+        my_jobs = await conn.fetch("SELECT id FROM jobs WHERE recruiter_id = $1", current_user["sub"])
+    job_ids = [j["id"] for j in my_jobs]
     
     if not job_ids:
         # Avoid empty IN clause
         job_ids = ["00000000-0000-0000-0000-000000000000"]
 
-    apps_res = supabase.table("applications").select("id, status, ai_score, created_at, candidate_id, parsed_data, users(email), jobs(title)").in_("job_id", job_ids).order("created_at", desc=True).execute()
+    async with pool.acquire() as conn:
+        apps_rows = await conn.fetch(
+            """
+            SELECT
+                a.id, a.status, a.ai_score, a.created_at, a.candidate_id, a.parsed_data,
+                json_build_object('email', u.email) AS users,
+                json_build_object('title', j.title) AS jobs
+            FROM applications a
+            LEFT JOIN users u ON u.id = a.candidate_id
+            LEFT JOIN jobs j ON j.id = a.job_id
+            WHERE a.job_id = ANY($1::uuid[])
+            ORDER BY a.created_at DESC
+            """,
+            job_ids,
+        )
+    apps_data = [dict(r) for r in apps_rows]
     
     # Fetch candidate profiles
-    candidate_ids = list({a["candidate_id"] for a in apps_res.data if a.get("candidate_id")})
+    candidate_ids = list({a["candidate_id"] for a in apps_data if a.get("candidate_id")})
     profiles_map = {}
     if candidate_ids:
-        profiles_res = supabase.table("profiles").select("id, full_name").in_("id", candidate_ids).execute()
-        profiles_map = {p["id"]: p.get("full_name") for p in profiles_res.data}
+        async with pool.acquire() as conn:
+            profiles_rows = await conn.fetch(
+                "SELECT id, full_name FROM profiles WHERE id = ANY($1::uuid[])",
+                candidate_ids,
+            )
+        profiles_map = {p["id"]: p["full_name"] for p in profiles_rows}
     
     # Build a per-application name map: prefer resume parsed name over profile name
     # This handles cases where a candidate applies using someone else's account
@@ -70,27 +94,37 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
             
         return "Candidate"
 
-    total_applications = len(apps_res.data)
+    total_applications = len(apps_data)
     
     # Map applications to IDs
-    app_ids = [a["id"] for a in apps_res.data]
+    app_ids = [a["id"] for a in apps_data]
     if not app_ids:
         app_ids = ["00000000-0000-0000-0000-000000000000"]
         
-    app_map = {a["id"]: a for a in apps_res.data}
+    app_map = {a["id"]: a for a in apps_data}
     
     # 1. Fetch assessments to filter out already-completed interviews from 'Upcoming'
-    assessments_res = supabase.table("assessments").select("interview_id").execute()
-    assessed_interview_ids = {ass["interview_id"] for ass in (assessments_res.data or [])}
+    async with pool.acquire() as conn:
+        assessments_rows = await conn.fetch("SELECT interview_id FROM assessments")
+    assessed_interview_ids = {ass["interview_id"] for ass in assessments_rows}
 
     # Fetch real scheduled interviews
-    interviews_res = supabase.table("interviews").select("id, scheduled_at, status, application_id").in_("application_id", app_ids).eq("status", "scheduled").order("scheduled_at", desc=False).execute()
+    async with pool.acquire() as conn:
+        interviews_rows = await conn.fetch(
+            """
+            SELECT id, scheduled_at, status, application_id
+            FROM interviews
+            WHERE application_id = ANY($1::uuid[]) AND status = 'scheduled'
+            ORDER BY scheduled_at ASC
+            """,
+            app_ids,
+        )
     
     today = datetime.now().date()
     interviews_today = 0
     upcoming_interviews = []
     
-    for iv in interviews_res.data:
+    for iv in interviews_rows:
         # Skip if already assessed
         if iv["id"] in assessed_interview_ids:
             continue
@@ -124,11 +158,11 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
     upcoming_interviews = upcoming_interviews[:5]
 
     # Hired this month
-    hired_count = sum(1 for a in apps_res.data if a.get("status") == "hired")
+    hired_count = sum(1 for a in apps_data if a.get("status") == "hired")
     
     # Recent candidates
     recent_candidates = []
-    for app in apps_res.data[:5]:
+    for app in apps_data[:5]:
         candidate_name = resolve_candidate_name(app)
         
         job_title = app.get("jobs", {}).get("title", "Unknown Role") if app.get("jobs") else "Unknown Role"
@@ -144,7 +178,7 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
         
         # Determine status for dashboard
         app_status = app.get("status", "applied")
-        if app.get("id") in [iv["application_id"] for iv in interviews_res.data if iv["id"] in assessed_interview_ids]:
+        if app.get("id") in [iv["application_id"] for iv in interviews_rows if iv["id"] in assessed_interview_ids]:
             app_status = "interviewed"
 
         recent_candidates.append({
@@ -177,30 +211,44 @@ async def get_talent_pool(current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ("recruiter", "admin"):
         raise HTTPException(status_code=403, detail="Recruiter access required.")
 
-    supabase = get_supabase()
+    pool = await get_pg_pool()
 
     # 1. Get recruiter's active job IDs
-    my_jobs = supabase.table("jobs").select("id").eq("recruiter_id", current_user["sub"]).eq("is_active", True).execute()
-    my_job_ids = [j["id"] for j in my_jobs.data]
+    async with pool.acquire() as conn:
+        my_jobs = await conn.fetch(
+            "SELECT id FROM jobs WHERE recruiter_id = $1 AND is_active = TRUE",
+            current_user["sub"],
+        )
+    my_job_ids = [j["id"] for j in my_jobs]
 
     # 2. Get candidate IDs who already applied to recruiter's jobs
     already_applied_ids: set = set()
     if my_job_ids:
-        apps = supabase.table("applications").select("candidate_id").in_("job_id", my_job_ids).execute()
-        already_applied_ids = {a["candidate_id"] for a in apps.data}
+        async with pool.acquire() as conn:
+            apps = await conn.fetch(
+                "SELECT candidate_id FROM applications WHERE job_id = ANY($1::uuid[])",
+                my_job_ids,
+            )
+        already_applied_ids = {a["candidate_id"] for a in apps}
 
     # 3. Get all profiles that have resume_url set (they have uploaded a resume)
-    profiles_res = supabase.table("profiles").select(
-        "id, full_name, resume_url, parsed_data, experience_years, skills, headline"
-    ).not_.is_("resume_url", "null").execute()
+    async with pool.acquire() as conn:
+        profiles_res = await conn.fetch(
+            """
+            SELECT id, full_name, resume_url, parsed_data, experience_years, skills, headline
+            FROM profiles
+            WHERE resume_url IS NOT NULL
+            """
+        )
 
     # 4. Filter out already-applied candidates and also filter out recruiters
-    users_res = supabase.table("users").select("id, role").execute()
-    recruiter_ids = {u["id"] for u in users_res.data if u.get("role") in ("recruiter", "admin")}
+    async with pool.acquire() as conn:
+        users_res = await conn.fetch("SELECT id, role FROM users")
+    recruiter_ids = {u["id"] for u in users_res if u.get("role") in ("recruiter", "admin")}
 
     pool = []
     seen_names: set = set()
-    for p in profiles_res.data:
+    for p in profiles_res:
         pid = p["id"]
         if pid in already_applied_ids:
             continue
@@ -259,34 +307,56 @@ async def get_analytics_metrics(current_user: dict = Depends(get_current_user), 
     if current_user["role"] not in ("recruiter", "admin"):
         raise HTTPException(status_code=403, detail="Recruiter access required.")
         
-    supabase = get_supabase()
+    pool = await get_pg_pool()
     
     # 1. Get Top Jobs
-    jobs_res = supabase.table("jobs").select("id, title, department").eq("recruiter_id", current_user["sub"]).execute()
-    job_ids = [j["id"] for j in jobs_res.data]
+    async with pool.acquire() as conn:
+        jobs_res = await conn.fetch(
+            "SELECT id, title, department FROM jobs WHERE recruiter_id = $1",
+            current_user["sub"],
+        )
+    job_ids = [j["id"] for j in jobs_res]
     if not job_ids:
         job_ids = ["00000000-0000-0000-0000-000000000000"]
         
-    apps_res = supabase.table("applications").select("id, status, ai_score, created_at, job_id, jobs(title, department, is_active)").in_("job_id", job_ids).execute()
+    async with pool.acquire() as conn:
+        apps_rows = await conn.fetch(
+            """
+            SELECT
+                a.id, a.status, a.ai_score, a.created_at, a.job_id,
+                json_build_object('title', j.title, 'department', j.department, 'is_active', j.is_active) AS jobs
+            FROM applications a
+            LEFT JOIN jobs j ON j.id = a.job_id
+            WHERE a.job_id = ANY($1::uuid[])
+            """,
+            job_ids,
+        )
+    apps_data = [dict(r) for r in apps_rows]
     
     # Pipeline stages
-    applied = len(apps_res.data)
+    applied = len(apps_data)
     
     # 1. Fetch assessments to ensure 'Interviewed' status is accurate even if application status hasn't synced
-    all_app_ids = [a["id"] for a in apps_res.data] if apps_res.data else ["00000000-0000-0000-0000-000000000000"]
-    assessments_res = supabase.table("assessments").select("interview_id, interviews(application_id)").execute()
+    all_app_ids = [a["id"] for a in apps_data] if apps_data else ["00000000-0000-0000-0000-000000000000"]
+    async with pool.acquire() as conn:
+        assessments_res = await conn.fetch(
+            """
+            SELECT a.interview_id, i.application_id
+            FROM assessments a
+            LEFT JOIN interviews i ON i.id = a.interview_id
+            """
+        )
     interviewed_app_ids = set()
-    for ass in (assessments_res.data or []):
-        inter = ass.get("interviews")
-        if inter and inter.get("application_id") in all_app_ids:
-            interviewed_app_ids.add(inter["application_id"])
+    for ass in assessments_res:
+        if ass.get("application_id") in all_app_ids:
+            interviewed_app_ids.add(ass["application_id"])
 
     # Pipeline counts
-    screened_raw = sum(1 for a in apps_res.data if a.get('status') != 'applied')
-    shortlisted_raw = sum(1 for a in apps_res.data if a.get("status") in ("invited", "scheduled", "interviewing", "interviewed", "offered", "hired"))
-    interviewed_raw = sum(1 for a in apps_res.data if a.get("status") in ("interviewed", "offered", "hired") or a.get("id") in interviewed_app_ids)
-    offered_raw = sum(1 for a in apps_res.data if a.get("status") in ("offered", "hired"))
-    hired_raw = sum(1 for a in apps_res.data if a.get("status") == "hired")
+    screened_raw = sum(1 for a in apps_data if a.get('status') != 'applied')
+    shortlisted_raw = sum(1 for a in apps_data if a.get("status") in ("invited", "scheduled", "interviewing", "interviewed", "offered", "hired"))
+    interviewed_raw = sum(1 for a in apps_data if a.get("status") in ("interviewed", "offered", "hired") or a.get("id") in interviewed_app_ids)
+    offered_raw = sum(1 for a in apps_data if a.get("status") in ("offered", "hired"))
+    hired_raw = sum(1 for a in apps_data if a.get("status") == "hired")
 
     # Ensure logical pipeline drops (Stage N cannot be > Stage N-1)
     screened = max(screened_raw, shortlisted_raw, interviewed_raw, offered_raw, hired_raw)
@@ -296,7 +366,7 @@ async def get_analytics_metrics(current_user: dict = Depends(get_current_user), 
     hired = hired_raw
 
     # 2. Calculate AI Match Accuracy (Average of ai_score)
-    scores = [a.get("ai_score") or 0 for a in apps_res.data if a.get("ai_score") is not None]
+    scores = [a.get("ai_score") or 0 for a in apps_data if a.get("ai_score") is not None]
     # If scores are 0-1, convert to pct; if 0-100, keep as is
     def normalize_score(s):
         return s * 100 if s <= 1.0 else s
@@ -315,7 +385,7 @@ async def get_analytics_metrics(current_user: dict = Depends(get_current_user), 
     
     # Top Jobs
     job_stats = {}
-    for a in apps_res.data:
+    for a in apps_data:
         jid = a["job_id"]
         if jid not in job_stats:
             jdata = a.get("jobs") or {}
@@ -359,7 +429,7 @@ async def get_analytics_metrics(current_user: dict = Depends(get_current_user), 
         {"label": "Avg. Time to Hire", "value": "14d", "change": "-0d", "positive": True, "icon": "Clock", "color": "amber", "sub": "days"},
         {"label": "Offer Acceptance", "value": f"{int((hired/offered)*100) if offered else 0}%", "change": "+0%", "positive": True, "icon": "CheckCircle", "color": "green", "sub": "rate"},
         {"label": "AI Match Accuracy", "value": f"{avg_accuracy}%", "change": "+0%", "positive": True, "icon": "Brain", "color": "accent", "sub": "precision"},
-        {"label": "Rejected Candidates", "value": str(sum(1 for a in apps_res.data if a.get("status") == "rejected")), "change": "+0", "positive": False, "icon": "XCircle", "color": "red", "sub": "this period"},
+        {"label": "Rejected Candidates", "value": str(sum(1 for a in apps_data if a.get("status") == "rejected")), "change": "+0", "positive": False, "icon": "XCircle", "color": "red", "sub": "this period"},
     ]
 
     # ── Real Weekly Activity (last 7 days from application created_at) ──
@@ -368,18 +438,22 @@ async def get_analytics_metrics(current_user: dict = Depends(get_current_user), 
     weekly_intv = {d: 0 for d in range(7)}
 
     # Also fetch interviews for this recruiter's apps within the last 7 days
-    if apps_res.data:
-        all_app_ids = [a["id"] for a in apps_res.data]
+    if apps_data:
+        all_app_ids = [a["id"] for a in apps_data]
         if not all_app_ids:
             all_app_ids = ["00000000-0000-0000-0000-000000000000"]
-        intv_res = supabase.table("interviews").select("id, scheduled_at, application_id").in_("application_id", all_app_ids).execute()
+        async with pool.acquire() as conn:
+            intv_res = await conn.fetch(
+                "SELECT id, scheduled_at, application_id FROM interviews WHERE application_id = ANY($1::uuid[])",
+                all_app_ids,
+            )
     else:
-        intv_res = type('obj', (object,), {'data': []})()
+        intv_res = []
 
     now = datetime.now()
     seven_days_ago = now - timedelta(days=7)
 
-    for a in apps_res.data:
+    for a in apps_data:
         try:
             created_at_str = a.get("created_at", "")
             if not created_at_str:
@@ -391,7 +465,7 @@ async def get_analytics_metrics(current_user: dict = Depends(get_current_user), 
         except Exception:
             pass
 
-    for iv in intv_res.data:
+    for iv in intv_res:
         try:
             sched_str = iv.get("scheduled_at", "")
             if not sched_str:
@@ -411,7 +485,7 @@ async def get_analytics_metrics(current_user: dict = Depends(get_current_user), 
     # ── Sourcing Channels: based on how candidates came in ──
     # Since we don't track utm_source yet, distribute by application count per job
     # as a proxy — "Direct Apply" (Careers Page) is our platform, rest is unknown
-    total_apps = len(apps_res.data)
+    total_apps = len(apps_data)
     if total_apps > 0:
         sourcing_channels = [
             {"name": "Direct Apply", "count": total_apps, "pct": 100, "color": "bg-brand-500"},

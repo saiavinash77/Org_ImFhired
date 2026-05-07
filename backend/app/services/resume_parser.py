@@ -15,10 +15,10 @@ import docx2txt
 import numpy as np
 
 from app.core.config import settings
-from app.core.database import get_supabase, get_pg_pool, get_redis
+from app.core.database import get_pg_pool, get_redis
 from app.schemas.schemas import ParsedResumeData
 import logging
-from langfuse import observe
+# from langfuse import observe  # Langfuse v2.x compatibility - observe decorator not available
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ class ResumeParserService:
         else:
             raise ValueError(f"Unsupported file format: {ext}")
 
-    @observe()
+    # @observe()  # Langfuse v2.x compatibility
     async def parse_resume(self, resume_text: str) -> ParsedResumeData:
         """Use GPT-4o to extract structured data from resume text."""
         prompt = RESUME_EXTRACTION_PROMPT.format(resume_text=resume_text[:8000])
@@ -159,16 +159,16 @@ class ResumeParserService:
             
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT requirements_embedding FROM jobs WHERE id = $1",
+                "SELECT embedding FROM jobs WHERE id = $1",
                 job_id,
             )
         
-        if not row or not row["requirements_embedding"]:
+        if not row or not row["embedding"]:
             # Fallback: keyword matching
             return await self._keyword_match_score(parsed_resume, job_id)
         
         # Cosine similarity
-        job_embedding = row["requirements_embedding"]
+        job_embedding = row["embedding"]
         score = self._cosine_similarity(resume_embedding, job_embedding)
         
         # Cache for 1 hour
@@ -185,18 +185,21 @@ class ResumeParserService:
         self, parsed_resume: ParsedResumeData, job_id: str
     ) -> float:
         """Fallback keyword-based matching when vector embeddings unavailable."""
-        supabase = get_supabase()
-        job_resp = supabase.table("jobs").select("requirements").eq("id", job_id).single().execute()
-        
-        if not job_resp.data:
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT requirements FROM jobs WHERE id = $1",
+                job_id,
+            )
+
+        if not row:
             return 0.5
         
-        job_data = job_resp.data or {}
-        requirements_list = job_data.get("requirements")
+        requirements_list = row.get("requirements")
         if not requirements_list:
             return 0.5
             
-        job_requirements = [r.lower() for r in requirements_list]
+        job_requirements = [str(r).lower() for r in requirements_list]
         candidate_skills = [s.lower() for s in parsed_resume.skills]
         
         if not job_requirements:

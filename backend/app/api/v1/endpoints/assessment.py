@@ -1,8 +1,9 @@
 """Assessment API — Fetch, manage, and act on AI-generated interview scorecards."""
 import asyncio
+import uuid
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
-from app.core.database import get_supabase
+from app.core.database import get_pg_pool
 from app.schemas.schemas import AssessmentResponse, ApplicationStatus
 from app.api.v1.endpoints.auth import get_current_user
 import logging
@@ -37,28 +38,26 @@ async def get_assessment(
     Fetch the AI-generated scorecard for an interview.
     Auth is optional — the interview UUID itself is the access credential.
     """
-    supabase = get_supabase()
+    pool = await get_pg_pool()
 
     try:
-        result = await asyncio.to_thread(
-            lambda: supabase.table("assessments").select("*")
-            .eq("interview_id", interview_id)
-            .maybe_single()
-            .execute()
-        )
-        row = result.data if result else None
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM assessments WHERE interview_id = $1 LIMIT 1",
+                uuid.UUID(interview_id),
+            )
+        row = dict(row) if row else None
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Database error fetching assessment: {exc}")
 
     if not row:
         try:
-            interview_res = await asyncio.to_thread(
-                lambda: supabase.table("interviews").select("status")
-                .eq("id", interview_id)
-                .maybe_single()
-                .execute()
-            )
-            interview = interview_res.data if interview_res else None
+            async with pool.acquire() as conn:
+                interview = await conn.fetchrow(
+                    "SELECT status FROM interviews WHERE id = $1 LIMIT 1",
+                    uuid.UUID(interview_id),
+                )
+            interview = dict(interview) if interview else None
         except Exception:
             interview = None
 
@@ -84,16 +83,14 @@ async def get_interview_transcript(
     if current_user["role"] not in ("recruiter", "admin"):
         raise HTTPException(status_code=403, detail="Recruiter access required.")
 
-    supabase = get_supabase()
+    pool = await get_pg_pool()
     try:
-        res = await asyncio.to_thread(
-            lambda: supabase.table("interviews")
-            .select("transcript")
-            .eq("id", interview_id)
-            .maybe_single()
-            .execute()
-        )
-        row = res.data if res else None
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT transcript FROM interviews WHERE id = $1 LIMIT 1",
+                uuid.UUID(interview_id),
+            )
+        row = dict(row) if row else None
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"DB error: {exc}")
 
@@ -120,30 +117,41 @@ async def regenerate_assessment(
     Delete the existing assessment and re-generate from the DB-stored transcript.
     Use this when a prior assessment was generated from a broken session.
     """
-    supabase = get_supabase()
+    pool = await get_pg_pool()
 
     # 1. Delete existing assessment (if any)
     try:
-        await asyncio.to_thread(
-            lambda: supabase.table("assessments")
-            .delete()
-            .eq("interview_id", interview_id)
-            .execute()
-        )
+        async with pool.acquire() as conn:
+            await conn.execute("DELETE FROM assessments WHERE interview_id = $1", uuid.UUID(interview_id))
         logger.info(f"[Regenerate] Deleted existing assessment for {interview_id}")
     except Exception as e:
         logger.warning(f"[Regenerate] No existing assessment to delete: {e}")
 
     # 2. Fetch interview data to get the persisted transcript
     try:
-        res = await asyncio.to_thread(
-            lambda: supabase.table("interviews")
-            .select("*, applications(*, jobs(*), users(*))")
-            .eq("id", interview_id)
-            .single()
-            .execute()
-        )
-        interview_data = res.data if res else None
+        async with pool.acquire() as conn:
+            interview_data = await conn.fetchrow(
+                """
+                SELECT
+                    i.*,
+                    to_jsonb(a) AS applications,
+                    to_jsonb(j) AS jobs,
+                    to_jsonb(u) AS users
+                FROM interviews i
+                LEFT JOIN applications a ON a.id = i.application_id
+                LEFT JOIN jobs j ON j.id = a.job_id
+                LEFT JOIN users u ON u.id = a.candidate_id
+                WHERE i.id = $1
+                LIMIT 1
+                """,
+                uuid.UUID(interview_id),
+            )
+        interview_data = dict(interview_data) if interview_data else None
+        if interview_data and interview_data.get("applications"):
+            applications = dict(interview_data["applications"])
+            applications["jobs"] = interview_data.get("jobs")
+            applications["users"] = interview_data.get("users")
+            interview_data["applications"] = applications
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"DB error: {exc}")
 
@@ -208,34 +216,60 @@ async def list_assessments(
     if current_user["role"] not in ("recruiter", "admin"):
         raise HTTPException(status_code=403, detail="Recruiter access required.")
 
-    supabase = get_supabase()
+    pool = await get_pg_pool()
 
     if current_user["role"] == "recruiter":
-        jobs_res = supabase.table("jobs").select("id").eq("recruiter_id", current_user["sub"]).execute()
-        job_ids = [j["id"] for j in jobs_res.data]
+        async with pool.acquire() as conn:
+            jobs_rows = await conn.fetch("SELECT id FROM jobs WHERE recruiter_id = $1", uuid.UUID(current_user["sub"]))
+        job_ids = [r["id"] for r in jobs_rows]
         if not job_ids:
             return []
-            
-        apps_res = supabase.table("applications").select("id").in_("job_id", job_ids).execute()
-        app_ids = [a["id"] for a in apps_res.data]
+        async with pool.acquire() as conn:
+            app_rows = await conn.fetch("SELECT id FROM applications WHERE job_id = ANY($1::uuid[])", job_ids)
+        app_ids = [r["id"] for r in app_rows]
         if not app_ids:
             return []
-            
-        interviews_res = supabase.table("interviews").select("id").in_("application_id", app_ids).execute()
-        iv_ids = [i["id"] for i in interviews_res.data]
+        async with pool.acquire() as conn:
+            iv_rows = await conn.fetch("SELECT id FROM interviews WHERE application_id = ANY($1::uuid[])", app_ids)
+        iv_ids = [r["id"] for r in iv_rows]
         if not iv_ids:
             return []
-
-        query = supabase.table("assessments").select(
-            "*, interviews(*, applications(*, users(email), jobs(title)))"
-        ).in_("interview_id", iv_ids)
+        filter_sql = "WHERE a.interview_id = ANY($1::uuid[])"
+        filter_args = [iv_ids]
     else:
-        query = supabase.table("assessments").select(
-            "*, interviews(*, applications(*, users(email), jobs(title)))"
-        )
+        filter_sql = ""
+        filter_args = []
 
-    result = query.order("created_at", desc=True).execute()
-    data = result.data
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"""
+            SELECT
+                a.*,
+                json_build_object(
+                    'id', i.id,
+                    'application_id', i.application_id,
+                    'status', i.status,
+                    'scheduled_at', i.scheduled_at,
+                    'applications', json_build_object(
+                        'id', ap.id,
+                        'candidate_id', ap.candidate_id,
+                        'job_id', ap.job_id,
+                        'parsed_data', ap.parsed_data,
+                        'users', json_build_object('email', u.email),
+                        'jobs', json_build_object('title', j.title)
+                    )
+                ) AS interviews
+            FROM assessments a
+            LEFT JOIN interviews i ON i.id = a.interview_id
+            LEFT JOIN applications ap ON ap.id = i.application_id
+            LEFT JOIN users u ON u.id = ap.candidate_id
+            LEFT JOIN jobs j ON j.id = ap.job_id
+            {filter_sql}
+            ORDER BY a.created_at DESC
+            """,
+            *filter_args,
+        )
+    data = [dict(r) for r in rows]
 
     # Collect candidate_ids to fetch names from profiles
     user_ids = []
@@ -248,9 +282,13 @@ async def list_assessments(
 
     profiles_map = {}
     if user_ids:
-        profiles_res = supabase.table("profiles").select("id, full_name").in_("id", list(set(user_ids))).execute()
-        for p in profiles_res.data:
-            profiles_map[p["id"]] = p.get("full_name") or "Unknown"
+        async with pool.acquire() as conn:
+            profiles_rows = await conn.fetch(
+                "SELECT id, full_name FROM profiles WHERE id = ANY($1::uuid[])",
+                list(set(user_ids)),
+            )
+        for p in profiles_rows:
+            profiles_map[p["id"]] = p["full_name"] or "Unknown"
 
     for item in data:
         try:
@@ -301,17 +339,16 @@ async def send_offer(
     if current_user["role"] not in ("recruiter", "admin"):
         raise HTTPException(status_code=403, detail="Recruiter access required.")
 
-    supabase = get_supabase()
+    pool = await get_pg_pool()
 
     # 1. Fetch assessment + interview + application + candidate + job
     try:
-        result = await asyncio.to_thread(
-            lambda: supabase.table("assessments").select("*")
-            .eq("interview_id", interview_id)
-            .maybe_single()
-            .execute()
-        )
-        assessment_row = result.data if result else None
+        async with pool.acquire() as conn:
+            assessment_row = await conn.fetchrow(
+                "SELECT * FROM assessments WHERE interview_id = $1 LIMIT 1",
+                uuid.UUID(interview_id),
+            )
+        assessment_row = dict(assessment_row) if assessment_row else None
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"DB error: {exc}")
 
@@ -329,12 +366,29 @@ async def send_offer(
 
     # 2. Fetch interview → application → candidate + job data
     try:
-        interview_res = await asyncio.to_thread(
-            lambda: supabase.table("interviews").select(
-                "*, applications(*, jobs(*, recruiter:users!recruiter_id(*)), users(*))"
-            ).eq("id", interview_id).single().execute()
-        )
-        interview_data = interview_res.data if interview_res else None
+        async with pool.acquire() as conn:
+            interview_data = await conn.fetchrow(
+                """
+                SELECT
+                    i.*,
+                    to_jsonb(ap) AS applications,
+                    to_jsonb(j) AS jobs,
+                    to_jsonb(cu) AS users
+                FROM interviews i
+                LEFT JOIN applications ap ON ap.id = i.application_id
+                LEFT JOIN jobs j ON j.id = ap.job_id
+                LEFT JOIN users cu ON cu.id = ap.candidate_id
+                WHERE i.id = $1
+                LIMIT 1
+                """,
+                uuid.UUID(interview_id),
+            )
+        interview_data = dict(interview_data) if interview_data else None
+        if interview_data and interview_data.get("applications"):
+            applications = dict(interview_data["applications"])
+            applications["jobs"] = interview_data.get("jobs")
+            applications["users"] = interview_data.get("users")
+            interview_data["applications"] = applications
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"DB error fetching interview: {exc}")
 
@@ -494,11 +548,12 @@ async def send_offer(
         updated_dr["offer_sent"] = True
         updated_dr["offer_sent_at"] = __import__("datetime").datetime.utcnow().isoformat()
         updated_dr["offer_sent_by"] = current_user.get("id", "unknown")
-        await asyncio.to_thread(
-            lambda: supabase.table("assessments").update({
-                "detailed_report": updated_dr
-            }).eq("interview_id", interview_id).execute()
-        )
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE assessments SET detailed_report = $1 WHERE interview_id = $2",
+                updated_dr,
+                uuid.UUID(interview_id),
+            )
     except Exception as e:
         logger.warning(f"Could not update offer_sent flag: {e}")
 
@@ -506,11 +561,12 @@ async def send_offer(
     app_id = application.get("id")
     if app_id:
         try:
-            await asyncio.to_thread(
-                lambda: supabase.table("applications").update({
-                    "status": ApplicationStatus.OFFERED.value
-                }).eq("id", app_id).execute()
-            )
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE applications SET status = $1 WHERE id = $2",
+                    ApplicationStatus.OFFERED.value,
+                    app_id,
+                )
         except Exception as e:
             logger.warning(f"Could not update application status to offered: {e}")
 

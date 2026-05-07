@@ -6,7 +6,7 @@ from openai import AsyncOpenAI
 
 from app.core.config import settings
 from app.api.v1.endpoints.auth import get_current_user
-from app.core.database import get_supabase
+from app.core.database import get_pg_pool
 
 logger = logging.getLogger(__name__)
 
@@ -23,52 +23,68 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
 
-def build_context_prompt() -> str:
-    """Fetch recent data from Supabase to provide context for the AI."""
-    supabase = get_supabase()
+async def build_context_prompt(recruiter_id: str) -> str:
+    """Fetch recent RDS data to provide context for the AI assistant."""
+    pool = await get_pg_pool()
     
     try:
-        # Fetch Active Jobs
-        jobs_res = supabase.table("jobs").select("id, title, department, type, salary_range").eq("is_active", True).execute()
+        # Fetch Active Jobs for this recruiter
+        async with pool.acquire() as conn:
+            jobs_rows = await conn.fetch(
+                """
+                SELECT title, department, type, salary_min, salary_max
+                FROM jobs
+                WHERE recruiter_id = $1 AND is_active = true
+                ORDER BY created_at DESC
+                LIMIT 20
+                """,
+                recruiter_id,
+            )
+
         jobs_text = "None"
-        if jobs_res.data:
+        if jobs_rows:
             jobs_text = "\n".join([
-                f"- {j.get('title')} ({j.get('department')}): {j.get('type')}, Salary: {j.get('salary_range') or 'N/A'}"
-                for j in jobs_res.data
+                f"- {j.get('title')} ({j.get('department')}): {j.get('type')}, Salary: {j.get('salary_min') or 0}–{j.get('salary_max') or 0}"
+                for j in jobs_rows
             ])
 
         # Fetch Recent Assessments to summarize candidates
-        assess_res = supabase.table("assessments").select(
-            "*, interviews(applications(candidate_id, jobs(title)))"
-        ).order("created_at", desc=True).limit(10).execute()
-        
-        candidates_text = "None"
-        if assess_res.data:
-            candidate_lines = []
-            
-            # Fetch names via profiles just like assessment listing
-            user_ids = []
-            for a in assess_res.data:
-                app = a.get("interviews", {}).get("applications", {})
-                if app.get("candidate_id"):
-                    user_ids.append(app["candidate_id"])
-            
-            profiles_map = {}
-            if user_ids:
-                prof_res = supabase.table("profiles").select("id, full_name").in_("id", list(set(user_ids))).execute()
-                for p in prof_res.data:
-                    profiles_map[p["id"]] = p.get("full_name") or "Unknown Candidate"
+        async with pool.acquire() as conn:
+            assess_rows = await conn.fetch(
+                """
+                SELECT
+                    a.overall_score,
+                    a.verdict,
+                    p.full_name,
+                    u.email,
+                    j.title AS job_title
+                FROM assessments a
+                JOIN interviews i ON i.id = a.interview_id
+                JOIN applications app ON app.id = i.application_id
+                JOIN jobs j ON j.id = app.job_id
+                JOIN profiles p ON p.id = app.candidate_id
+                JOIN users u ON u.id = app.candidate_id
+                WHERE j.recruiter_id = $1
+                ORDER BY a.created_at DESC
+                LIMIT 10
+                """,
+                recruiter_id,
+            )
 
-            for a in assess_res.data:
-                app = a.get("interviews", {}).get("applications", {})
-                job_title = app.get("jobs", {}).get("title", "Unknown Role")
-                candidate_id = app.get("candidate_id", "")
-                c_name = profiles_map.get(candidate_id, "Unknown Candidate")
-                
-                score = a.get("overall_score", 0)
-                verdict = a.get("verdict", "N/A")
+        candidates_text = "None"
+        if assess_rows:
+            candidate_lines = []
+            for a in assess_rows:
+                c_name = a.get("full_name") or None
+                if not c_name:
+                    email = a.get("email") or ""
+                    c_name = email.split("@")[0].replace(".", " ").title() if email else "Unknown Candidate"
+
+                score = a.get("overall_score", 0) or 0
+                verdict = a.get("verdict") or "N/A"
+                job_title = a.get("job_title") or "Unknown Role"
                 candidate_lines.append(f"- {c_name} (Applied for {job_title}): AI Score: {score}, Verdict: {verdict}")
-            
+
             if candidate_lines:
                 candidates_text = "\n".join(candidate_lines)
 
@@ -108,7 +124,7 @@ async def chat_with_assistant(
 
     try:
         # Build the dynamic system instruction
-        system_prompt = build_context_prompt()
+        system_prompt = await build_context_prompt(current_user["sub"])
         
         # Format messages for OpenAI
         api_messages = [{"role": "system", "content": system_prompt}]

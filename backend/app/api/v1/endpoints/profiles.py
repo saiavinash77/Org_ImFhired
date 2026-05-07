@@ -8,7 +8,7 @@ import boto3
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, BackgroundTasks
 from typing import Optional, Any
 
-from app.core.database import get_supabase
+from app.core.database import get_pg_pool
 from app.core.config import settings
 from app.schemas.schemas import ProfileResponse, ProfileUpdate
 from app.api.v1.endpoints.auth import get_current_user
@@ -18,32 +18,41 @@ from app.services.s3_utils import generate_presigned_url_if_s3
 router = APIRouter()
 
 
-def ensure_user_profile_rows(supabase, current_user: dict) -> dict:
+async def ensure_user_profile_rows(conn, current_user: dict) -> dict:
     """Ensure public.users/public.profiles rows exist for a valid JWT user."""
     user_id = current_user["sub"]
     role = current_user.get("role", "candidate")
     fallback_email = current_user.get("email") or f"user_{user_id[:8]}@restored.local"
 
-    supabase.table("users").upsert({
-        "id": user_id,
-        "email": fallback_email,
-        "role": role,
-    }).execute()
+    await conn.execute(
+        """
+        INSERT INTO users (id, email, role)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (id) DO UPDATE SET
+            email = EXCLUDED.email,
+            role = EXCLUDED.role
+        """,
+        user_id,
+        fallback_email,
+        role,
+    )
 
-    profile_res = supabase.table("profiles").select("*").eq("id", user_id).execute()
-    if profile_res.data:
-        return profile_res.data[0]
+    profile = await conn.fetchrow("SELECT * FROM profiles WHERE id = $1 LIMIT 1", user_id)
+    if profile:
+        return dict(profile)
 
-    created = supabase.table("profiles").upsert({
-        "id": user_id,
-        "full_name": "Restored User",
-        "skills": [],
-    }).execute()
-    return created.data[0] if created.data else {
-        "id": user_id,
-        "full_name": "Restored User",
-        "skills": [],
-    }
+    created = await conn.fetchrow(
+        """
+        INSERT INTO profiles (id, full_name, skills)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
+        RETURNING *
+        """,
+        user_id,
+        "Restored User",
+        [],
+    )
+    return dict(created) if created else {"id": user_id, "full_name": "Restored User", "skills": []}
 
 
 async def upload_profile_resume_to_s3(file: UploadFile, user_id: str) -> str:
@@ -78,8 +87,9 @@ async def upload_profile_resume_to_s3(file: UploadFile, user_id: str) -> str:
 @router.get("/me", response_model=ProfileResponse)
 async def get_my_profile(current_user: dict = Depends(get_current_user)):
     """Get the currently logged-in user's profile, including parsed AI insights."""
-    supabase = get_supabase()
-    profile_data = ensure_user_profile_rows(supabase, current_user)
+    pool = await get_pg_pool()
+    async with pool.acquire() as conn:
+        profile_data = await ensure_user_profile_rows(conn, current_user)
     profile_data["resume_url"] = generate_presigned_url_if_s3(profile_data.get("resume_url"))
     return profile_data
 
@@ -90,18 +100,23 @@ async def update_my_profile(
     current_user: dict = Depends(get_current_user)
 ):
     """Manually update text fields on the candidate profile."""
-    supabase = get_supabase()
+    pool = await get_pg_pool()
     
     update_dict = data.dict(exclude_unset=True)
     if not update_dict:
         raise HTTPException(status_code=400, detail="No fields provided to update.")
 
-    ensure_user_profile_rows(supabase, current_user)
-    result = supabase.table("profiles").update(update_dict).eq("id", current_user["sub"]).execute()
-    if not result.data:
+    async with pool.acquire() as conn:
+        await ensure_user_profile_rows(conn, current_user)
+        set_clause = ", ".join(f"{k} = ${i+2}" for i, k in enumerate(update_dict.keys()))
+        row = await conn.fetchrow(
+            f"UPDATE profiles SET {set_clause} WHERE id = $1 RETURNING *",
+            current_user["sub"],
+            *update_dict.values(),
+        )
+    if not row:
         raise HTTPException(status_code=404, detail="Failed to update profile.")
-        
-    return result.data[0]
+    return dict(row)
 
 async def upload_profile_avatar_to_s3(file: UploadFile, user_id: str) -> str:
     """Upload avatar to S3 or return fallback."""
@@ -135,31 +150,20 @@ async def upload_avatar(
 ):
     """Upload user avatar photo."""
     user_id = current_user["sub"]
-    supabase = get_supabase()
+    pool = await get_pg_pool()
     
     avatar_url = await upload_profile_avatar_to_s3(avatar, user_id)
     
-    result = supabase.table("profiles").update({"avatar_url": avatar_url}).eq("id", user_id).execute()
-    if not result.data:
+    async with pool.acquire() as conn:
+        result = await conn.fetchrow(
+            "UPDATE profiles SET avatar_url = $1 WHERE id = $2 RETURNING *",
+            avatar_url,
+            user_id,
+        )
+    if not result:
         raise HTTPException(status_code=500, detail="Failed to save avatar Updates.")
-        
-    return result.data[0]
-async def update_my_profile(
-    data: ProfileUpdate, 
-    current_user: dict = Depends(get_current_user)
-):
-    """Manually update text fields on the candidate profile."""
-    supabase = get_supabase()
-    
-    update_dict = data.dict(exclude_unset=True)
-    if not update_dict:
-        raise HTTPException(status_code=400, detail="No fields provided to update.")
-        
-    result = supabase.table("profiles").update(update_dict).eq("id", current_user["sub"]).execute()
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Failed to update profile.")
-        
-    return result.data[0]
+    return dict(result)
+
 
 
 @router.post("/me/resume", response_model=ProfileResponse)
@@ -172,7 +176,7 @@ async def upload_and_parse_resume(
     Extracts text and runs AI parsing to generate 'Insights' (skills, experience).
     """
     user_id = current_user["sub"]
-    supabase = get_supabase()
+    pool = await get_pg_pool()
     
     # 1. Validate file type
     allowed_types = {
@@ -231,7 +235,8 @@ async def upload_and_parse_resume(
             print(f"ERROR: AI Parsing failed for profile {user_id}: {e}")
             
     # 5. Save to database
-    ensure_user_profile_rows(supabase, current_user)
+    async with pool.acquire() as conn:
+        await ensure_user_profile_rows(conn, current_user)
     update_data: dict[str, Any] = {
         "resume_url": resume_url,
     }
@@ -240,12 +245,16 @@ async def upload_and_parse_resume(
         update_data["skills"] = skills_list
         update_data["experience_years"] = exp_years
         
-    result = supabase.table("profiles").update(update_data).eq("id", user_id).execute()
-    
-    if not result.data:
+    async with pool.acquire() as conn:
+        set_clause = ", ".join(f"{k} = ${i+2}" for i, k in enumerate(update_data.keys()))
+        row = await conn.fetchrow(
+            f"UPDATE profiles SET {set_clause} WHERE id = $1 RETURNING *",
+            user_id,
+            *update_data.values(),
+        )
+    if not row:
         raise HTTPException(status_code=500, detail="Failed to save profile updates.")
-    
-    profile_data = result.data[0]
+    profile_data = dict(row)
     profile_data["resume_url"] = generate_presigned_url_if_s3(profile_data.get("resume_url"))
     return profile_data
 
@@ -256,7 +265,7 @@ async def delete_my_resume(current_user: dict = Depends(get_current_user)):
     Remove the global resume and associated AI insights from the profile.
     """
     user_id = current_user["sub"]
-    supabase = get_supabase()
+    pool = await get_pg_pool()
     
     # 1. Clear fields in database
     update_data = {
@@ -266,12 +275,21 @@ async def delete_my_resume(current_user: dict = Depends(get_current_user)):
         "experience_years": 0
     }
     
-    result = supabase.table("profiles").update(update_data).eq("id", user_id).execute()
-    
-    if not result.data:
+    async with pool.acquire() as conn:
+        result = await conn.fetchrow(
+            """
+            UPDATE profiles
+            SET resume_url = NULL, parsed_data = NULL, skills = $1, experience_years = $2
+            WHERE id = $3
+            RETURNING *
+            """,
+            [],
+            0,
+            user_id,
+        )
+    if not result:
         raise HTTPException(status_code=404, detail="Profile not found.")
-        
-    return result.data[0]
+    return dict(result)
 
 
 @router.get("/talent-pool", response_model=list[ProfileResponse])
@@ -282,19 +300,28 @@ async def view_talent_pool(current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ("recruiter", "admin"):
         raise HTTPException(status_code=403, detail="Access denied. Only recruiters can view the talent pool.")
         
-    supabase = get_supabase()
+    pool = await get_pg_pool()
     
     # Fetch profiles that have parsed_data (meaning they uploaded a resume)
     # Join with users to only get 'candidates'
-    users_res = supabase.table("users").select("id").eq("role", "candidate").execute()
-    candidate_ids = [u["id"] for u in users_res.data]
+    async with pool.acquire() as conn:
+        users_rows = await conn.fetch("SELECT id FROM users WHERE role = 'candidate'")
+    candidate_ids = [u["id"] for u in users_rows]
     
     if not candidate_ids:
         return []
         
-    profiles_res = supabase.table("profiles").select("*").in_("id", candidate_ids).not_.is_("parsed_data", "null").order("experience_years", desc=True).execute()
-    
-    profiles = profiles_res.data
+    async with pool.acquire() as conn:
+        profiles_rows = await conn.fetch(
+            """
+            SELECT *
+            FROM profiles
+            WHERE id = ANY($1::uuid[]) AND parsed_data IS NOT NULL
+            ORDER BY experience_years DESC
+            """,
+            candidate_ids,
+        )
+    profiles = [dict(r) for r in profiles_rows]
     for p in profiles:
         p["resume_url"] = generate_presigned_url_if_s3(p.get("resume_url"))
     return profiles

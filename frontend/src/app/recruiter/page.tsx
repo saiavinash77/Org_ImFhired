@@ -11,7 +11,6 @@ import {
 import { useSearchParams } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
 import { analyticsApi } from '@/services/api'
-import { supabase } from '@/lib/supabaseClient'
 
 const statusConfig: Record<string, { label: string; bg: string; color: string }> = {
   applied:      { label: 'Applied',     bg: 'rgba(100,116,139,0.1)',color: '#64748b' },
@@ -67,27 +66,10 @@ export default function RecruiterDashboard() {
     // Initial fetch
     fetchDashboard()
 
-    // Subscribe to realtime database changes on tables feeding the dashboard
-    const channel = supabase.channel('dashboard-metrics')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'applications' },
-        () => {
-          fetchDashboard()
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'interviews' },
-        () => {
-          fetchDashboard()
-        }
-      )
-      .subscribe()
-
+    // In AWS mode we avoid Supabase realtime; dashboard refreshes via
+    // initial fetch and subsequent page navigations.
     return () => {
       isMounted = false
-      supabase.removeChannel(channel)
     }
   }, [])
 

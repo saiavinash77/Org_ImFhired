@@ -18,7 +18,7 @@ from app.schemas.schemas import HireVerdict, InterviewStatus, ApplicationStatus
 from app.services.email_service import send_assessment_ready, send_candidate_scorecard_email
 import logging
 import asyncio
-from langfuse import observe
+# from langfuse import observe  # Langfuse v2.x compatibility - observe decorator not available
 
 logger = logging.getLogger(__name__)
 
@@ -228,7 +228,7 @@ def _format_proctoring_for_llm(logs: List[Dict]) -> Tuple[str, str]:
 class AssessmentGeneratorService:
     """Generates post-interview assessments using GPT-4o analysis."""
 
-    @observe()
+    # @observe()  # Langfuse v2.x compatibility
     async def generate_assessment(
         self,
         interview_id: str,

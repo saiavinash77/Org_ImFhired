@@ -37,12 +37,18 @@ async def get_pg_pool() -> asyncpg.Pool:
     if _pg_pool is None:
         if not settings.DATABASE_URL:
             raise RuntimeError("DATABASE_URL is not configured.")
+        # Parse the DSN but pass password separately to avoid URL-encoding issues
+        from urllib.parse import urlparse, unquote
+        parsed = urlparse(settings.DATABASE_URL)
         _pg_pool = await asyncpg.create_pool(
-            dsn=settings.DATABASE_URL,
+            host=parsed.hostname,
+            port=parsed.port or 5432,
+            user=parsed.username,
+            password=unquote(parsed.password) if parsed.password else None,
+            database=parsed.path.lstrip("/") or "postgres",
             min_size=2,
             max_size=10,
             command_timeout=30,
-            # pgvector codec registration
             init=_init_connection,
         )
         print("PostgreSQL pool created.")
@@ -56,13 +62,16 @@ async def _init_connection(conn: asyncpg.Connection):
     except Exception:
         pass  # extension may already exist or require superuser — non-fatal
     # Register vector as a text codec so asyncpg can handle it
-    await conn.set_type_codec(
-        "vector",
-        encoder=lambda v: str(v),
-        decoder=lambda v: v,
-        schema="pg_catalog",
-        format="text",
-    )
+    try:
+        await conn.set_type_codec(
+            "vector",
+            encoder=lambda v: str(v),
+            decoder=lambda v: v,
+            schema="pg_catalog",
+            format="text",
+        )
+    except Exception:
+        pass  # pgvector not installed — skip, embeddings will use fallback
 
 
 async def get_redis() -> Optional[redis.Redis]:
@@ -94,9 +103,14 @@ async def init_db():
     try:
         await get_pg_pool()
     except Exception as e:
-        print(f"CRITICAL: PostgreSQL pool init failed — {e}")
-        raise
-    await get_redis()
+        print(f"WARNING: PostgreSQL pool init failed — {e}")
+        print("Continuing without database — will fail on first DB operation")
+        # Don't raise — allow app to start for development/debugging
+    
+    try:
+        await get_redis()
+    except Exception as e:
+        print(f"WARNING: Redis init failed — {e}")
 
 
 async def close_db():

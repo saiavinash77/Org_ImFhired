@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 import toast from 'react-hot-toast'
+import AuthGuard from '@/components/AuthGuard'
 
 type Step = 'details' | 'upload' | 'processing' | 'done'
 
@@ -32,6 +33,8 @@ function ApplyContent() {
   const [profile, setProfile] = useState<any>(null)
   const [useSavedResume, setUseSavedResume] = useState(false)
   const [isInvited, setIsInvited] = useState(false)
+  const [verification, setVerification] = useState<any>(null)
+  const [verificationLoading, setVerificationLoading] = useState(true)
 
   useEffect(() => {
     const fetchJobDetails = async () => {
@@ -88,6 +91,28 @@ function ApplyContent() {
       }
     }
     fetchProfile()
+
+    // ── Verification status (candidate-side gate) ─────────────────────────
+    const fetchVerification = async () => {
+      const token = localStorage.getItem('hireai_token')
+      if (!token) {
+        setVerificationLoading(false)
+        return
+      }
+      try {
+        const API_URL = getApiUrl()
+        const res = await axios.get(`${API_URL}/api/v1/verification/status`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        setVerification(res.data)
+      } catch (e) {
+        // If this fails, backend will still enforce the verification gate.
+        console.error('Failed to load verification status', e)
+      } finally {
+        setVerificationLoading(false)
+      }
+    }
+    fetchVerification()
   }, [searchParams, router])
 
   const onDrop = useCallback((accepted: File[]) => {
@@ -107,7 +132,77 @@ function ApplyContent() {
     e.preventDefault()
     if (!file && !useSavedResume) return toast.error('Please upload your resume or select your saved profile resume.')
     if (!form.name || !form.email) return toast.error('Please fill in your details.')
-    
+
+    // If user isn't verified yet, divert to one-time verification first.
+    const isVerified = verification?.verified === true
+    if (verificationLoading) {
+      toast.error('Checking your verification status. Please try again in a moment.')
+      return
+    }
+    const token = typeof window !== 'undefined' ? localStorage.getItem('hireai_token') : null
+    if (!isVerified) {
+      if (!token) {
+        toast.error('Please log in again to complete verification.')
+        setStep('upload')
+        return
+      }
+
+      setLoading(true)
+      setStep('processing')
+      try {
+        const API_URL = getApiUrl()
+
+        // Verification service requires `profiles.resume_url` to exist.
+        if (!(verification?.has_resume === true)) {
+          if (!file) {
+            toast.error('Upload a resume to complete verification.')
+            setStep('upload')
+            return
+          }
+
+          const resumeFormData = new FormData()
+          resumeFormData.append('resume', file)
+          await axios.post(`${API_URL}/api/v1/profiles/me/resume`, resumeFormData, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'multipart/form-data'
+            }
+          })
+        }
+
+        const status = verification?.status
+        const interviewId = verification?.interview_id
+
+        // If the verification is already scheduled/in-progress, just route to the same room.
+        // (Prevents creating multiple verification sessions for a single candidate.)
+        if (interviewId && (status === 'interview_scheduled' || status === 'in_progress')) {
+          router.push(`/candidate/verify/${interviewId}`)
+          return
+        }
+
+        // Candidate can retake if they previously failed; recruiters cannot trigger any retake.
+        const route = status === 'failed' ? 'retake' : 'start'
+        const startRes = await axios.post(
+          `${API_URL}/api/v1/verification/${route}`,
+          {},
+          { headers: { Authorization: `Bearer ${token}` } }
+        )
+        const { room_url } = startRes.data || {}
+        if (room_url) return router.push(room_url)
+
+        toast.error('Verification could not be started. Please try again.')
+        setStep('upload')
+      } catch (err: any) {
+        console.error(err)
+        const msg = err.response?.data?.detail || 'Please complete verification before applying.'
+        toast.error(msg)
+        setStep('upload')
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+
     setLoading(true)
     setStep('processing')
     
@@ -247,6 +342,24 @@ function ApplyContent() {
                 <h2 className="text-2xl font-bold text-surface-900 mb-2">Upload Your Resume</h2>
                 <p className="text-surface-500 text-sm mb-8">PDF or DOCX allowed. Max 5MB.</p>
 
+                {verificationLoading === false && verification?.verified === false && (
+                  <div className="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-left flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="text-sm font-bold text-amber-900">
+                        {verification?.status === 'failed'
+                          ? 'Retake verification to apply'
+                          : 'Verification required before applying'}
+                      </div>
+                      <div className="text-xs text-amber-700 mt-1 leading-relaxed">
+                        {verification?.status === 'failed'
+                          ? 'You can complete your one-time verification again to qualify.'
+                          : 'Complete your one-time verification interview once, then you can apply.'}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {profile?.resume_url && (
                   <div 
                     onClick={() => { setUseSavedResume(true); setFile(null); }}
@@ -291,10 +404,16 @@ function ApplyContent() {
                   <button onClick={() => setStep('details')} className="text-sm font-bold text-surface-400 hover:text-surface-600 transition-colors">Back</button>
                   <button 
                     onClick={handleSubmit}
-                    disabled={!file && !useSavedResume}
+                    disabled={(!file && !useSavedResume) || verificationLoading}
                     className="bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white font-bold px-8 py-3.5 rounded-xl transition-all shadow-lg"
                   >
-                    Submit Application
+                    {verificationLoading
+                      ? 'Submit Application'
+                      : verification?.verified === false
+                        ? verification?.status === 'failed'
+                          ? 'Retake Verification & Apply'
+                          : 'Complete Verification & Apply'
+                        : 'Submit Application'}
                   </button>
                 </div>
               </div>
@@ -364,8 +483,10 @@ function ApplyContent() {
 
 export default function ApplyPage() {
   return (
-    <Suspense fallback={<div className="p-10 text-center text-surface-500 flex flex-col items-center gap-4"><Loader2 className="w-8 h-8 animate-spin text-brand-600" /> Loading application...</div>}>
-      <ApplyContent />
-    </Suspense>
+    <AuthGuard requiredRole="candidate">
+      <Suspense fallback={<div className="p-10 text-center text-surface-500 flex flex-col items-center gap-4"><Loader2 className="w-8 h-8 animate-spin text-brand-600" /> Loading application...</div>}>
+        <ApplyContent />
+      </Suspense>
+    </AuthGuard>
   )
 }

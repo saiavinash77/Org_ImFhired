@@ -14,7 +14,7 @@ from openai import AsyncOpenAI
 from app.core.config import settings
 from app.core.database import get_redis
 import logging
-from langfuse import observe
+# from langfuse import observe  # Langfuse v2.x compatibility - observe decorator not available
 
 logger = logging.getLogger(__name__)
 
@@ -343,7 +343,7 @@ class AIInterviewerService:
         except Exception as e:
             logger.warning(f"Failed to write to Redis: {e}")
 
-    @observe()
+    # @observe()  # Langfuse v2.x compatibility
     async def generate_response(
         self,
         session: InterviewStateMachine,
@@ -413,7 +413,7 @@ class AIInterviewerService:
         
         return messages
 
-    @observe()
+    # @observe()  # Langfuse v2.x compatibility
     async def _should_advance_phase(
         self, session: InterviewStateMachine, latest_message: str
     ) -> bool:

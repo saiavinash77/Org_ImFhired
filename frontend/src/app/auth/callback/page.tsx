@@ -4,7 +4,6 @@ export const dynamic = 'force-dynamic'
 
 import { useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { supabase } from '@/lib/supabaseClient'
 import axios from 'axios'
 import { getApiUrl } from '@/lib/api'
 import toast from 'react-hot-toast'
@@ -20,33 +19,10 @@ function AuthCallbackContent() {
   useEffect(() => {
     const handleCallback = async () => {
       try {
-        const { data: { session }, error } = await supabase.auth.getSession()
-        if (error) throw error
-        if (!session) {
-          router.push('/auth/login')
-          return
-        }
-
-        const API_URL = getApiUrl()
-        // Exchange Supabase token for HireAI custom JWT
-        const res = await axios.post(`${API_URL}/api/v1/auth/social-login`, {
-          access_token: session.access_token,
-          role: role
-        })
-
-        // Store HireAI token and user
-        localStorage.setItem('hireai_token', res.data.access_token)
-        localStorage.setItem('hireai_user', JSON.stringify(res.data.user))
-
-        toast.success('Successfully logged in!')
-        
-        // Redirect based on the actual user role returned by the server
-        const dbRole = res.data.user?.role || 'candidate'
-        if (dbRole === 'recruiter' || dbRole === 'admin') {
-          router.push('/recruiter/jobs')
-        } else {
-          router.push('/candidate/dashboard')
-        }
+        // AWS-only mode: social login callback is not supported in this build.
+        // Keep this route to avoid 404s from old OAuth redirects.
+        toast.error('Social login is not supported. Please use email/password login.')
+        router.push(`/auth/login?role=${role}`)
       } catch (err: any) {
         console.error('Auth callback error:', err)
         toast.error('Social authentication failed. Please try again.')
