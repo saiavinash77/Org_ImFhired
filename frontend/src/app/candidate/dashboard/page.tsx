@@ -5,6 +5,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import axios from 'axios'
 import { useDropzone } from 'react-dropzone'
+import { useRouter } from 'next/navigation'
 import { 
   Upload, FileText, Brain, CheckCircle, 
   Briefcase, MapPin, Clock, 
@@ -17,6 +18,7 @@ import AuthGuard from '@/components/AuthGuard'
 
 function CandidateDashboardInner() {
   const { token, logout, getInitials } = useAuth()
+  const router = useRouter()
   const [profile, setProfile] = useState<any>(null)
   const [jobs, setJobs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -36,7 +38,14 @@ function CandidateDashboardInner() {
       const profRes = await axios.get(`${API_URL}/api/v1/profiles/me`, {
         headers: { Authorization: `Bearer ${token}` }
       })
-      setProfile(profRes.data)
+      const profileData = profRes.data
+      setProfile(profileData)
+
+      // Guard: if onboarding not completed, redirect
+      if (!profileData?.onboarding_completed) {
+        router.push('/candidate/onboarding')
+        return
+      }
 
       // Fetch Active Jobs
       const jobsRes = await axios.get(`${API_URL}/api/v1/jobs/?is_active=true`)

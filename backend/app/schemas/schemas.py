@@ -84,10 +84,29 @@ class ProfileResponse(BaseModel):
     resume_url: Optional[str] = None
     experience_years: Optional[float] = 0
     parsed_data: Optional[Dict[str, Any]] = None
+    # Onboarding fields
+    location: Optional[str] = None
+    work_status: Optional[str] = None
+    current_company: Optional[str] = None
+    job_title: Optional[str] = None
+    total_experience_months: Optional[int] = 0
+    current_salary: Optional[int] = 0
+    notice_period: Optional[str] = None
+    industry: Optional[str] = None
+    department: Optional[str] = None
+    highest_qualification: Optional[str] = None
+    university: Optional[str] = None
+    specialization: Optional[str] = None
+    course_type: Optional[str] = None
+    graduation_year: Optional[int] = None
+    preferred_locations: List[str] = Field(default_factory=list)
+    expected_salary: Optional[int] = 0
+    resume_headline: Optional[str] = None
+    onboarding_completed: Optional[bool] = False
 
-    @field_validator("skills", mode="before")
+    @field_validator("skills", "preferred_locations", mode="before")
     @classmethod
-    def validate_skills(cls, v: Any) -> List[str]:
+    def validate_list_fields(cls, v: Any) -> List[str]:
         if v is None: return []
         return v
 
@@ -114,6 +133,25 @@ class ProfileUpdate(BaseModel):
     resume_url: Optional[str] = None
     parsed_data: Optional[Dict[str, Any]] = None
     experience_years: Optional[float] = None
+    # Onboarding fields
+    location: Optional[str] = None
+    work_status: Optional[str] = None
+    current_company: Optional[str] = None
+    job_title: Optional[str] = None
+    total_experience_months: Optional[int] = None
+    current_salary: Optional[int] = None
+    notice_period: Optional[str] = None
+    industry: Optional[str] = None
+    department: Optional[str] = None
+    highest_qualification: Optional[str] = None
+    university: Optional[str] = None
+    specialization: Optional[str] = None
+    course_type: Optional[str] = None
+    graduation_year: Optional[int] = None
+    preferred_locations: Optional[List[str]] = None
+    expected_salary: Optional[int] = None
+    resume_headline: Optional[str] = None
+    onboarding_completed: Optional[bool] = None
 
 
 class UserResponse(BaseModel):

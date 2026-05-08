@@ -69,7 +69,12 @@ function RegisterContent() {
       localStorage.setItem('hireai_user', JSON.stringify(data.user))
 
       toast.success('Account created. Welcome to HireAI.')
-      router.push(role === 'recruiter' ? '/recruiter/jobs' : '/candidate/dashboard')
+      // Candidates go to onboarding first, recruiters go straight to jobs
+      if (role === 'recruiter') {
+        router.push('/recruiter/jobs')
+      } else {
+        router.push('/candidate/onboarding')
+      }
     } catch (err: any) {
       toast.error(err.message || 'Registration failed. Please try again.')
     } finally {
