@@ -21,9 +21,9 @@ async def _send_resend_email(to_email: str, subject: str, html_body: str) -> boo
 
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"] = "HireAI <hello@ashishai.in>"
+        msg["From"] = "HireAI <onboarding@resend.dev>"
         msg["To"] = to_email
-        msg["Reply-To"] = "hello@ashishai.in"
+        msg["Reply-To"] = "noreply@resend.dev"
 
         part = MIMEText(html_body, "html", "utf-8")
         msg.attach(part)

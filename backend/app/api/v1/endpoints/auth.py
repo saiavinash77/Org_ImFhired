@@ -95,7 +95,7 @@ async def register(data: UserCreate):
             "UserPoolId": settings.COGNITO_USER_POOL_ID,
             "Username": data.email,
             "TemporaryPassword": data.password,
-            "MessageAction": "SUPPRESS",  # don't send Cognito's default email
+            "MessageAction": "SUPPRESS",
             "UserAttributes": [
                 {"Name": "email", "Value": data.email},
                 {"Name": "email_verified", "Value": "true"},
@@ -105,11 +105,24 @@ async def register(data: UserCreate):
         cognito_resp = await asyncio.to_thread(
             lambda: cognito.admin_create_user(**kwargs)
         )
-        cognito_user_id = cognito_resp["User"]["Username"]  # usually the email
+        cognito_user_id = cognito_resp["User"]["Username"]
     except ClientError as e:
         code = e.response["Error"]["Code"]
         if code == "UsernameExistsException":
-            raise HTTPException(status_code=400, detail="Email already registered.")
+            # Email exists in Cognito — check if same role in RDS
+            async with pool.acquire() as conn:
+                existing = await conn.fetchrow(
+                    "SELECT id, role FROM users WHERE email = $1", data.email
+                )
+            if existing:
+                if existing["role"] == data.role.value:
+                    raise HTTPException(status_code=400, detail="Email already registered. Please sign in.")
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"This email is already registered as a {existing['role']}. Please use a different email or sign in with your existing role."
+                    )
+            raise HTTPException(status_code=400, detail="Email already registered. Please sign in.")
         raise HTTPException(status_code=400, detail=f"Registration failed: {e.response['Error']['Message']}")
 
     # Set permanent password (skip FORCE_CHANGE_PASSWORD state)
@@ -125,35 +138,44 @@ async def register(data: UserCreate):
     except ClientError as e:
         raise HTTPException(status_code=400, detail=f"Password setup failed: {e.response['Error']['Message']}")
 
-    # Use a stable UUID derived from the Cognito sub
-    user_id = str(uuid.uuid4())
-
     # 2. Persist to RDS
+    user_id = str(uuid.uuid4())  # generate new ID upfront
     async with pool.acquire() as conn:
-        await conn.execute(
-            """
-            INSERT INTO users (id, email, role, cognito_username)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (email) DO NOTHING
-            """,
-            user_id, data.email, data.role.value, data.email,
-        )
-        profile_data = {
-            "id": user_id,
-            "full_name": data.full_name,
-            "phone": data.phone,
-            "company_name": data.company_name if data.role == UserRole.RECRUITER else None,
-        }
+        existing_user = await conn.fetchrow("SELECT id, role FROM users WHERE email = $1", data.email)
+        if existing_user:
+            if existing_user["role"] != data.role.value:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"This email is already registered as a {existing_user['role']}. Please use a different email."
+                )
+            user_id = str(existing_user["id"])  # reuse existing ID
+        else:
+            await conn.execute(
+                "INSERT INTO users (id, email, role, cognito_username) VALUES ($1, $2, $3, $4)",
+                user_id, data.email, data.role.value, data.email,
+            )
+
+        # Upsert profile
         await conn.execute(
             """
             INSERT INTO profiles (id, full_name, phone, company_name)
             VALUES ($1, $2, $3, $4)
-            ON CONFLICT (id) DO NOTHING
+            ON CONFLICT (id) DO UPDATE SET
+                full_name = EXCLUDED.full_name,
+                phone = EXCLUDED.phone,
+                company_name = EXCLUDED.company_name
             """,
-            user_id, data.full_name, data.phone, profile_data.get("company_name"),
+            user_id, data.full_name, data.phone,
+            data.company_name if data.role == UserRole.RECRUITER else None,
         )
 
     token = create_access_token(user_id, data.role.value)
+    profile_data = {
+        "id": user_id,
+        "full_name": data.full_name,
+        "phone": data.phone,
+        "company_name": data.company_name if data.role == UserRole.RECRUITER else None,
+    }
     return TokenResponse(
         access_token=token,
         user=UserResponse(

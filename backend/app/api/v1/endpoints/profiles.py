@@ -235,18 +235,16 @@ async def upload_and_parse_resume(
             print(f"ERROR: AI Parsing failed for profile {user_id}: {e}")
             
     # 5. Save to database
+    # 5. Save to database — ensure profile row exists first, then update
+    import json as _json
+    update_data: dict[str, Any] = {"resume_url": resume_url}
+    if parsed_data:
+        update_data["parsed_data"] = _json.dumps(parsed_data)
+        update_data["skills"] = list(skills_list) if skills_list else []
+        update_data["experience_years"] = float(exp_years) if exp_years else 0.0
+
     async with pool.acquire() as conn:
         await ensure_user_profile_rows(conn, current_user)
-    update_data: dict[str, Any] = {
-        "resume_url": resume_url,
-    }
-    if parsed_data:
-        import json as _json
-        update_data["parsed_data"] = _json.dumps(parsed_data)
-        update_data["skills"] = skills_list
-        update_data["experience_years"] = exp_years
-        
-    async with pool.acquire() as conn:
         set_clause = ", ".join(f"{k} = ${i+2}" for i, k in enumerate(update_data.keys()))
         row = await conn.fetchrow(
             f"UPDATE profiles SET {set_clause} WHERE id = $1 RETURNING *",
