@@ -91,6 +91,17 @@ class ProfileResponse(BaseModel):
         if v is None: return []
         return v
 
+    @field_validator("parsed_data", mode="before")
+    @classmethod
+    def validate_parsed_data(cls, v: Any) -> Optional[Dict[str, Any]]:
+        if v is None: return None
+        if isinstance(v, dict): return v
+        if isinstance(v, str):
+            import json
+            try: return json.loads(v)
+            except Exception: return None
+        return None
+
 
 class ProfileUpdate(BaseModel):
     full_name: Optional[str] = None
@@ -206,22 +217,27 @@ class ApplicationResponse(BaseModel):
     resume_url: Optional[str] = None
     parsed_data: Optional[ParsedResumeData] = None
     ai_score: Optional[float] = 0
-    status: str  # keep as plain str to allow any status value from DB
+    status: str
     created_at: datetime
-    
-    # Joined fields from profiles
     candidate_name: Optional[str] = None
     candidate_phone: Optional[str] = None
-    
-    # Joined relation: applications → jobs
     jobs: Optional[Dict[str, Any]] = None
-    
-    # Joined relation: applications → users
     users: Optional[Dict[str, Any]] = None
+
+    @field_validator("parsed_data", mode="before")
+    @classmethod
+    def validate_parsed_data(cls, v: Any):
+        if v is None: return None
+        if isinstance(v, dict): return v
+        if isinstance(v, str):
+            import json
+            try: return json.loads(v)
+            except Exception: return None
+        return v
 
     class Config:
         from_attributes = True
-        extra = "allow"  # pass through any extra joined fields
+        extra = "allow"
 
 
 class ApplyResponse(BaseModel):

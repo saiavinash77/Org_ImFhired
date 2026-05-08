@@ -88,9 +88,10 @@ function CandidateDashboardInner() {
       
       setProfile(res.data)
       toast.success('Resume parsed successfully! Insights updated.', { id: toastId })
-    } catch (err) {
-      console.error(err)
-      toast.error('Failed to upload resume', { id: toastId })
+    } catch (err: any) {
+      console.error('Resume upload error:', err)
+      const msg = err.response?.data?.detail || err.message || 'Failed to upload resume'
+      toast.error(msg, { id: toastId })
     } finally {
       setUploading(false)
     }
