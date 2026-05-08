@@ -12,6 +12,7 @@ import {
 import { useAuth } from '@/hooks/useAuth'
 import AuthGuard from '@/components/AuthGuard'
 import AIAssistantWidget from '@/components/AIAssistantWidget'
+import NotificationBell from '@/components/NotificationBell'
 
 const navItems = [
   { href: '/recruiter', icon: LayoutDashboard, label: 'Dashboard' },
@@ -214,10 +215,7 @@ function RecruiterLayoutInner({ children }: { children: React.ReactNode }) {
 
           <div className="flex items-center gap-2.5 ml-auto">
             {/* Glass Notification Bell */}
-            <button className="glass-btn relative w-10 h-10 rounded-xl flex items-center justify-center">
-              <Bell className="w-4 h-4 text-surface-600" />
-              <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-red-500 border-2 border-white" />
-            </button>
+            <NotificationBell />
             
             {/* Post Job */}
             <Link href="/recruiter/jobs/new"

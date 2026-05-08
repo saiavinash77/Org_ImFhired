@@ -867,6 +867,22 @@ async def generate_assessment(
                 problem_solving_score=int(assessment_data["problem_solving_score"]) if assessment_data.get("problem_solving_score") is not None else 0,
                 security_summary=f"AI Shield verdict: {shield_line}",
             )
+            # In-app notification for recruiter
+            try:
+                from app.api.v1.endpoints.notifications import create_notification
+                async with pool.acquire() as conn:
+                    rec_row = await conn.fetchrow("SELECT id FROM users WHERE email = $1", recruiter_email)
+                if rec_row:
+                    verdict_label = {"strong_hire": "Strong Hire 🚀", "hire": "Hire ✅", "no_hire": "No Hire ❌", "strong_no_hire": "Strong No Hire 🚫"}.get(verdict, verdict)
+                    await create_notification(
+                        user_id=str(rec_row["id"]),
+                        type="assessment_ready",
+                        title="Assessment Ready",
+                        message=f"{candidate_name} scored {int(overall_score)}/100 — {verdict_label}",
+                        link=f"/recruiter/assessments/{interview_id}",
+                    )
+            except Exception:
+                pass
 
         # ── Notify candidate ──────────────────────────────────────────────────
         if candidate_email:
@@ -880,6 +896,19 @@ async def generate_assessment(
                     passed=passed,
                     interview_id=interview_id,
                 )
+                # In-app notification for candidate
+                try:
+                    from app.api.v1.endpoints.notifications import create_notification
+                    badge = "✅ Verified" if passed else "📋 Review your scorecard"
+                    await create_notification(
+                        user_id=candidate_id,
+                        type="verification_complete",
+                        title="Verification Complete",
+                        message=f"Your score: {int(overall_score)}/100 — {badge}",
+                        link=f"/candidate/scorecard/{interview_id}",
+                    )
+                except Exception:
+                    pass
             else:
                 scorecard_link = f"{settings.FRONTEND_URL}/candidate/scorecard/{interview_id}"
                 await send_candidate_scorecard_email(
@@ -889,6 +918,18 @@ async def generate_assessment(
                     overall_score=int(overall_score),
                     scorecard_link=scorecard_link,
                 )
+                # In-app notification for candidate
+                try:
+                    from app.api.v1.endpoints.notifications import create_notification
+                    await create_notification(
+                        user_id=candidate_id,
+                        type="assessment_ready",
+                        title="Your Interview Results Are Ready",
+                        message=f"Your scorecard for {job_data.get('title','the role')} is available",
+                        link=f"/candidate/scorecard/{interview_id}",
+                    )
+                except Exception:
+                    pass
 
         logger.info(f"[OK] Assessment done for {interview_id} [{termination_reason}]")
 

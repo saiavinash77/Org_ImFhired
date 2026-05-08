@@ -22,7 +22,7 @@ from app.core.config import settings
 from app.core.database import init_db
 from app.api.v1.endpoints import (
     jobs, applications, schedule, assessment, auth, profiles,
-    realtime_proxy, analytics, verification
+    realtime_proxy, analytics, verification, notifications
 )
 
 print(f"DEBUG_STARTUP: Loading main.py")
@@ -117,6 +117,7 @@ app.include_router(schedule.router, prefix="/api/v1/schedule", tags=["Scheduling
 app.include_router(assessment.router, prefix="/api/v1/assessments", tags=["Assessments"])
 app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["Analytics"])
 app.include_router(verification.router, prefix="/api/v1/verification", tags=["Verification"])
+app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
 from app.api.v1.endpoints import assistant_chat
 app.include_router(assistant_chat.router, prefix="/api/v1/assistant", tags=["AI Assistant"])
 app.include_router(realtime_proxy.router, prefix="/ws/v1", tags=["Realtime Speech-to-Speech"])

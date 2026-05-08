@@ -221,3 +221,18 @@ CREATE OR REPLACE TRIGGER jobs_updated_at
 CREATE OR REPLACE TRIGGER applications_updated_at
     BEFORE UPDATE ON applications
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ── NOTIFICATIONS ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS notifications (
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type        TEXT NOT NULL,   -- 'new_application' | 'assessment_ready' | 'interview_scheduled' | 'offer_sent' | 'verification_complete'
+    title       TEXT NOT NULL,
+    message     TEXT NOT NULL,
+    link        TEXT,            -- frontend route to navigate to on click
+    is_read     BOOLEAN DEFAULT FALSE,
+    created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS notifications_user_id_idx ON notifications(user_id);
+CREATE INDEX IF NOT EXISTS notifications_is_read_idx ON notifications(user_id, is_read);

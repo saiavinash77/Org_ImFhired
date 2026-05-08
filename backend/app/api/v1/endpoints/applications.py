@@ -440,6 +440,24 @@ async def apply_for_job(
         print(f"ERROR: Screening failed after insert (application_id={application_id}): {e}")
         import traceback
         traceback.print_exc()
+
+    # Notify recruiter of new application
+    try:
+        from app.api.v1.endpoints.notifications import create_notification
+        async with pool.acquire() as conn:
+            job_row = await conn.fetchrow(
+                "SELECT title, recruiter_id FROM jobs WHERE id = $1", job_id
+            )
+        if job_row:
+            await create_notification(
+                user_id=str(job_row["recruiter_id"]),
+                type="new_application",
+                title="New Application Received",
+                message=f"{candidate_name} applied for {job_row['title']}",
+                link=f"/recruiter/candidates",
+            )
+    except Exception:
+        pass
     
     # Fetch final updated data
     async with pool.acquire() as conn:
