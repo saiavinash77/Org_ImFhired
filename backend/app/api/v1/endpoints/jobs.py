@@ -70,7 +70,7 @@ async def create_job(data: JobCreate, current_user: dict = Depends(get_current_u
     except Exception:
         pass
 
-    result = row_to_row_to_dict(row)
+    result = row_to_dict(row)
     result.pop("embedding", None)
     result.setdefault("applications_count", 0)
     result.setdefault("shortlisted_count", 0)
@@ -172,7 +172,7 @@ async def list_jobs(
 
     result = []
     for r in rows:
-        d = row_to_row_to_dict(r)
+        d = row_to_dict(r)
         jid = d["id"]
         d.update(counts_map.get(jid, {}))
         d.pop("embedding", None)
@@ -187,7 +187,7 @@ async def get_job(job_id: str):
         row = await conn.fetchrow("SELECT * FROM jobs WHERE id = $1", uuid.UUID(job_id))
     if not row:
         raise HTTPException(status_code=404, detail="Job not found.")
-    d = row_to_row_to_dict(row)
+    d = row_to_dict(row)
     d.pop("embedding", None)
     d.setdefault("applications_count", 0)
     d.setdefault("shortlisted_count", 0)
@@ -214,7 +214,7 @@ async def update_job(job_id: str, updates: dict, current_user: dict = Depends(ge
         )
     if not row:
         raise HTTPException(status_code=404, detail="Job not found.")
-    d = row_to_row_to_dict(row)
+    d = row_to_dict(row)
     d.pop("embedding", None)
     return d
 
@@ -248,4 +248,4 @@ async def get_job_candidates(job_id: str, current_user: dict = Depends(get_curre
             """,
             uuid.UUID(job_id), min_score,
         )
-    return [row_to_row_to_dict(r) for r in rows]
+    return [row_to_dict(r) for r in rows]

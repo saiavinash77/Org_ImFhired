@@ -46,7 +46,7 @@ async def get_assessment(
                 "SELECT * FROM assessments WHERE interview_id = $1 LIMIT 1",
                 uuid.UUID(interview_id),
             )
-        row = row_to_row_to_dict(row) if row else None
+        row = row_to_dict(row) if row else None
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Database error fetching assessment: {exc}")
 
@@ -57,7 +57,7 @@ async def get_assessment(
                     "SELECT status FROM interviews WHERE id = $1 LIMIT 1",
                     uuid.UUID(interview_id),
                 )
-            interview = row_to_row_to_dict(interview) if interview else None
+            interview = row_to_dict(interview) if interview else None
         except Exception:
             interview = None
 
@@ -90,7 +90,7 @@ async def get_interview_transcript(
                 "SELECT transcript FROM interviews WHERE id = $1 LIMIT 1",
                 uuid.UUID(interview_id),
             )
-        row = row_to_row_to_dict(row) if row else None
+        row = row_to_dict(row) if row else None
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"DB error: {exc}")
 
@@ -146,7 +146,7 @@ async def regenerate_assessment(
                 """,
                 uuid.UUID(interview_id),
             )
-        interview_data = row_to_row_to_dict(interview_data) if interview_data else None
+        interview_data = row_to_dict(interview_data) if interview_data else None
         if interview_data and interview_data.get("applications"):
             applications = dict(interview_data["applications"])
             applications["jobs"] = interview_data.get("jobs")
@@ -269,7 +269,7 @@ async def list_assessments(
             """,
             *filter_args,
         )
-    data = [row_to_row_to_dict(r) for r in rows]
+    data = [row_to_dict(r) for r in rows]
 
     # Collect candidate_ids to fetch names from profiles
     user_ids = []
@@ -348,7 +348,7 @@ async def send_offer(
                 "SELECT * FROM assessments WHERE interview_id = $1 LIMIT 1",
                 uuid.UUID(interview_id),
             )
-        assessment_row = row_to_row_to_dict(assessment_row) if assessment_row else None
+        assessment_row = row_to_dict(assessment_row) if assessment_row else None
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"DB error: {exc}")
 
@@ -383,7 +383,7 @@ async def send_offer(
                 """,
                 uuid.UUID(interview_id),
             )
-        interview_data = row_to_row_to_dict(interview_data) if interview_data else None
+        interview_data = row_to_dict(interview_data) if interview_data else None
         if interview_data and interview_data.get("applications"):
             applications = dict(interview_data["applications"])
             applications["jobs"] = interview_data.get("jobs")

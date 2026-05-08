@@ -55,7 +55,7 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
             """,
             job_ids,
         )
-    apps_data = [row_to_row_to_dict(r) for r in apps_rows]
+    apps_data = [row_to_dict(r) for r in apps_rows]
     
     # Fetch candidate profiles
     candidate_ids = list({a["candidate_id"] for a in apps_data if a.get("candidate_id")})
@@ -331,7 +331,7 @@ async def get_analytics_metrics(current_user: dict = Depends(get_current_user), 
             """,
             job_ids,
         )
-    apps_data = [row_to_row_to_dict(r) for r in apps_rows]
+    apps_data = [row_to_dict(r) for r in apps_rows]
     
     # Pipeline stages
     applied = len(apps_data)
