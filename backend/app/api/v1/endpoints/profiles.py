@@ -241,7 +241,8 @@ async def upload_and_parse_resume(
         "resume_url": resume_url,
     }
     if parsed_data:
-        update_data["parsed_data"] = parsed_data
+        import json as _json
+        update_data["parsed_data"] = _json.dumps(parsed_data)
         update_data["skills"] = skills_list
         update_data["experience_years"] = exp_years
         
@@ -257,8 +258,6 @@ async def upload_and_parse_resume(
     profile_data = row_to_dict(row)
     profile_data["resume_url"] = generate_presigned_url_if_s3(profile_data.get("resume_url"))
     return profile_data
-
-
 @router.delete("/me/resume", response_model=ProfileResponse)
 async def delete_my_resume(current_user: dict = Depends(get_current_user)):
     """
