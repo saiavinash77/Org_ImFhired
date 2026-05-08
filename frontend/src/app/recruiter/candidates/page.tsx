@@ -259,6 +259,23 @@ function CandidatesContent() {
                           <Eye className="w-3.5 h-3.5" /> Report
                         </Link>
                       )}
+                      {c.status === 'screening' && (
+                        <button
+                          onClick={async () => {
+                            const token = localStorage.getItem('hireai_token')
+                            const API_URL = (await import('@/lib/api')).getApiUrl()
+                            const res = await fetch(`${API_URL}/api/v1/applications/${c.id}/invite`, {
+                              method: 'POST',
+                              headers: { Authorization: `Bearer ${token}` },
+                            })
+                            if (res.ok) {
+                              setCandidates(prev => prev.map(x => x.id === c.id ? { ...x, status: 'invited' } : x))
+                            }
+                          }}
+                          className="flex items-center gap-1 text-xs font-semibold text-green-700 bg-green-50 hover:bg-green-100 px-2.5 py-1.5 rounded-lg transition-colors">
+                          <Video className="w-3.5 h-3.5" /> Invite
+                        </button>
+                      )}
                       {!c.interviewed && c.status === 'scheduled' && (() => {
                         const today = new Date()
                         today.setHours(0, 0, 0, 0)

@@ -141,14 +141,11 @@ async def run_screening_pipeline(
             required_skills=req_skills,
             min_experience=jd_data.get("experience_min") or 0,
         )
-        print(f"DEBUG: Match score for {candidate_email}: {match_score} (Threshold: {settings.MATCH_THRESHOLD})")
+        print(f"DEBUG: Match score for {candidate_email}: {match_score}")
         
-        # 4. Determine status
-        new_status = (
-            "invited"
-            if match_score >= settings.MATCH_THRESHOLD
-            else "applied"
-        )
+        # 4. Status stays 'screening' — recruiter decides who to invite
+        # We just store the AI score for the recruiter to review
+        new_status = "screening"
         
         # 5. Update application
         update_data = {
@@ -182,33 +179,8 @@ async def run_screening_pipeline(
             log(f"Step 5 ERROR: {e}")
             print(f"ERROR: Failed to update application: {e}")
         
-        # 6. Send interview invite if qualified
-        if match_score >= settings.MATCH_THRESHOLD:
-            try:
-                # Get job title for the email
-                job_title = jd_data.get("title") or "this role"
-                if not jd_data.get("title"):
-                    async with pool.acquire() as conn:
-                        job_res = await conn.fetchrow("SELECT title FROM jobs WHERE id = $1 LIMIT 1", job_id)
-                    if job_res:
-                        job_title = job_res.get("title", "this role")
-
-                schedule_link = f"{settings.FRONTEND_URL}/candidate/schedule?app_id={application_id}"
-                log(f"Step 6: Sending invite to {candidate_email} (Score: {match_score})")
-                await send_interview_invite(
-                    to_email=candidate_email,
-                    candidate_name=candidate_name,
-                    match_score=int(match_score * 100),
-                    schedule_link=schedule_link,
-                    job_title=job_title,
-                )
-                log(f"Step 6 COMPLETE: Invite sent to {candidate_email}")
-            except Exception as e:
-                log(f"Step 6 ERROR: {e}")
-                print(f"WARN: Failed to send invite email: {e}")
-        else:
-            log(f"ABORT: Score {match_score} below threshold {settings.MATCH_THRESHOLD}")
-            print(f"DEBUG: Score {match_score} below threshold {settings.MATCH_THRESHOLD}")
+        # No auto-invite — recruiter reviews AI scores and decides who to invite
+        # The recruiter can then click "Invite to Interview" from the candidates page
 
     except Exception as e:
         log(f"❌ CRITICAL PIPELINE FAILURE: {e}")
@@ -468,14 +440,12 @@ async def apply_for_job(
     final_score = final_row.get("ai_score") if final_row else 0.0
     final_status = (final_row.get("status") if final_row else None) or ApplicationStatus.APPLIED
     
-    is_invited = final_score >= settings.MATCH_THRESHOLD
-    
     return ApplyResponse(
         application_id=application_id,
         ai_score=final_score,
         status=final_status,
-        message="Application submitted successfully.",
-        interview_invited=is_invited,
+        message="Application submitted successfully. The recruiter will review your profile.",
+        interview_invited=False,  # recruiter decides — no auto-invite
     )
 
 
@@ -651,3 +621,81 @@ async def list_my_applications(
     for app in apps:
         app["resume_url"] = generate_presigned_url_if_s3(app.get("resume_url"))
     return apps
+
+
+@router.post("/{application_id}/invite")
+async def invite_to_interview(
+    application_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Recruiter manually invites a candidate to schedule their interview.
+    Sends the invite email and sets status to 'invited'.
+    """
+    if current_user["role"] not in ("recruiter", "admin"):
+        raise HTTPException(status_code=403, detail="Recruiter access required.")
+
+    pool = await get_pg_pool()
+
+    async with pool.acquire() as conn:
+        app_row = await conn.fetchrow(
+            """
+            SELECT a.id, a.candidate_id, a.job_id, a.status,
+                   u.email AS candidate_email,
+                   p.full_name AS candidate_name,
+                   j.title AS job_title, j.recruiter_id
+            FROM applications a
+            JOIN users u ON u.id = a.candidate_id
+            LEFT JOIN profiles p ON p.id = a.candidate_id
+            JOIN jobs j ON j.id = a.job_id
+            WHERE a.id = $1
+            LIMIT 1
+            """,
+            application_id,
+        )
+
+    if not app_row:
+        raise HTTPException(status_code=404, detail="Application not found.")
+
+    # Only the job's recruiter can invite
+    if str(app_row["recruiter_id"]) != current_user["sub"]:
+        raise HTTPException(status_code=403, detail="Not your job posting.")
+
+    candidate_email = app_row["candidate_email"]
+    candidate_name = app_row["candidate_name"] or candidate_email.split("@")[0].title()
+    job_title = app_row["job_title"]
+    schedule_link = f"{settings.FRONTEND_URL}/candidate/schedule?app_id={application_id}"
+
+    # Send invite email
+    try:
+        await send_interview_invite(
+            to_email=candidate_email,
+            candidate_name=candidate_name,
+            match_score=0,  # not shown in email
+            schedule_link=schedule_link,
+            job_title=job_title,
+        )
+    except Exception as e:
+        print(f"WARN: Invite email failed: {e}")
+
+    # Update status to invited
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE applications SET status = 'invited' WHERE id = $1",
+            application_id,
+        )
+
+    # Notify candidate in-app
+    try:
+        from app.api.v1.endpoints.notifications import create_notification
+        await create_notification(
+            user_id=str(app_row["candidate_id"]),
+            type="interview_scheduled",
+            title="Interview Invitation",
+            message=f"You've been invited to interview for {job_title}. Schedule your slot now.",
+            link=f"/candidate/schedule?app_id={application_id}",
+        )
+    except Exception:
+        pass
+
+    return {"ok": True, "message": f"Invite sent to {candidate_email}"}
