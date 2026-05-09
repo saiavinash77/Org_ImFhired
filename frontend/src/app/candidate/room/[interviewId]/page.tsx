@@ -446,20 +446,25 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
     return () => clearInterval(timer)
   }, [hasStarted])
 
+  // ── Camera: request on mount, not just when camOn changes ──────────────────
   useEffect(() => {
-    if (camOn && videoRef.current) {
-      console.log("Interview Room: Requesting Camera access...");
-      navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-        .then(stream => {
-          console.log("Interview Room: Camera Stream connected.");
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-            videoRef.current.play().catch(e => console.error("Camera Autoplay failed:", e));
-          }
-        })
-        .catch(err => {
-          console.error("Interview Room: Camera access DENIED or FAILED", err);
-        })
+    let stream: MediaStream | null = null
+    const startCamera = async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+          videoRef.current.play().catch(() => {})
+        }
+        console.log('[Camera] Stream started')
+      } catch (err) {
+        console.error('[Camera] Access denied or failed:', err)
+        setCamOn(false)
+      }
+    }
+    if (camOn) startCamera()
+    return () => {
+      stream?.getTracks().forEach(t => t.stop())
     }
   }, [camOn])
 
@@ -541,16 +546,37 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
 
   const handleSendText = () => {
     if (!inputText.trim() || isSending) return
+    if (!hasStarted) {
+      // Auto-start the interview when user types
+      startInterview().then(() => {
+        setTimeout(() => {
+          if (socketRef.current?.readyState === WebSocket.OPEN) {
+            socketRef.current.send(JSON.stringify({ type: 'input_text', text: inputText }))
+            setTranscript(prev => [...prev, { speaker: 'candidate', text: inputText }])
+            setInputText('')
+          }
+        }, 2000)
+      })
+      return
+    }
     setIsSending(true)
     if (socketRef.current?.readyState === WebSocket.OPEN) {
-      // Send as text message to the Realtime proxy
-      socketRef.current.send(JSON.stringify({
-        type: 'input_text',
-        text: inputText,
-      }))
+      socketRef.current.send(JSON.stringify({ type: 'input_text', text: inputText }))
       setTranscript(prev => [...prev, { speaker: 'candidate', text: inputText }])
       setInputText('')
       setTimeout(() => setIsSending(false), 500)
+    } else {
+      // Socket not ready — try reconnecting
+      initSocket().then(() => {
+        setTimeout(() => {
+          if (socketRef.current?.readyState === WebSocket.OPEN) {
+            socketRef.current.send(JSON.stringify({ type: 'input_text', text: inputText }))
+            setTranscript(prev => [...prev, { speaker: 'candidate', text: inputText }])
+            setInputText('')
+          }
+          setIsSending(false)
+        }, 1000)
+      }).catch(() => setIsSending(false))
     }
   }
 
