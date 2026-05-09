@@ -26,7 +26,7 @@ export default function JobsPage() {
   useEffect(() => {
     const fetchJobs = async () => {
       try {
-        const token = localStorage.getItem('hireai_token')
+        const token = localStorage.getItem('imfhired_token')
         const API_URL = getApiUrl();
         const response = await fetch(`${API_URL}/api/v1/jobs/?is_active=true`, {
           headers: token ? { 'Authorization': `Bearer ${token}` } : {}
@@ -69,7 +69,7 @@ export default function JobsPage() {
   })
 
   const deleteJob = async (id: string) => {
-    const token = localStorage.getItem('hireai_token')
+    const token = localStorage.getItem('imfhired_token')
     if (!token) return toast.error('Auth required')
 
     try {
@@ -92,7 +92,7 @@ export default function JobsPage() {
 
   const handleShare = (job: any, platform: 'linkedin' | 'whatsapp' | 'email') => {
     const jobUrl = `${window.location.origin}/candidate/jobs?id=${job.id}`
-    const text = `🚀 We're hiring: ${job.title}\n📍 ${job.location} | ${job.type}\n💼 ${job.salary}\n\nApply via HireAI — AI-powered interviews, instant results.`
+    const text = `🚀 We're hiring: ${job.title}\n📍 ${job.location} | ${job.type}\n💼 ${job.salary}\n\nApply via ImFhired — AI-powered interviews, instant results.`
 
     let url = ''
     if (platform === 'linkedin') {
@@ -111,7 +111,7 @@ export default function JobsPage() {
     } else if (platform === 'whatsapp') {
       url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text + '\n\n👉 Apply here: ' + jobUrl)}`
     } else if (platform === 'email') {
-      const subject = `We're Hiring: ${job.title} — HireAI`
+      const subject = `We're Hiring: ${job.title} — ImFhired`
       const body = `${text}\n\nApply here: ${jobUrl}`
       // Open Gmail directly in a new browser tab with pre-filled fields
       url = `https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`

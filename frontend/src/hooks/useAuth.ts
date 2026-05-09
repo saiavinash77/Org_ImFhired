@@ -1,5 +1,5 @@
 /**
- * useAuth — Central authentication hook for HireAI.
+ * useAuth — Central authentication hook for ImFhired.
  *
  * The single source of truth for:
  *   - Current user data (id, email, role, profile)
@@ -53,8 +53,8 @@ export function useAuth(): UseAuthReturn {
   const [isLoading, setIsLoading] = useState(true)
 
   const loadUser = useCallback(() => {
-    const storedToken = localStorage.getItem('hireai_token')
-    const storedUser = localStorage.getItem('hireai_user')
+    const storedToken = localStorage.getItem('imfhired_token')
+    const storedUser = localStorage.getItem('imfhired_user')
 
     if (storedToken && storedUser) {
       try {
@@ -62,8 +62,8 @@ export function useAuth(): UseAuthReturn {
         setToken(storedToken)
         setUser(parsedUser)
       } catch {
-        localStorage.removeItem('hireai_token')
-        localStorage.removeItem('hireai_user')
+        localStorage.removeItem('imfhired_token')
+        localStorage.removeItem('imfhired_user')
       }
     }
     setIsLoading(false)
@@ -71,13 +71,13 @@ export function useAuth(): UseAuthReturn {
 
   useEffect(() => {
     loadUser()
-    window.addEventListener('hireai_user_updated', loadUser)
-    return () => window.removeEventListener('hireai_user_updated', loadUser)
+    window.addEventListener('imfhired_user_updated', loadUser)
+    return () => window.removeEventListener('imfhired_user_updated', loadUser)
   }, [loadUser])
 
   const logout = useCallback(() => {
-    localStorage.removeItem('hireai_token')
-    localStorage.removeItem('hireai_user')
+    localStorage.removeItem('imfhired_token')
+    localStorage.removeItem('imfhired_user')
     setUser(null)
     setToken(null)
     router.push('/auth/login')
@@ -91,15 +91,15 @@ export function useAuth(): UseAuthReturn {
   }, [user])
 
   const updateUser = useCallback((newData: Partial<AuthUser>) => {
-    const storedUser = localStorage.getItem('hireai_user')
+    const storedUser = localStorage.getItem('imfhired_user')
     if (storedUser) {
       const parsedUser = JSON.parse(storedUser)
       const updatedUser = { ...parsedUser, ...newData }
       if (newData.profile) {
         updatedUser.profile = { ...parsedUser.profile, ...newData.profile }
       }
-      localStorage.setItem('hireai_user', JSON.stringify(updatedUser))
-      window.dispatchEvent(new Event('hireai_user_updated'))
+      localStorage.setItem('imfhired_user', JSON.stringify(updatedUser))
+      window.dispatchEvent(new Event('imfhired_user_updated'))
       setUser(updatedUser)
     }
   }, [])

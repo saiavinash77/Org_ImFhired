@@ -436,7 +436,7 @@ async def send_offer(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Job Offer - HireAI</title>
+  <title>Job Offer - ImFhired</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f0f2f5;font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f2f5;padding:40px 16px;">
@@ -496,7 +496,7 @@ async def send_offer(
               </table>
 
               <p style="color:#334155;font-size:15px;line-height:1.75;margin:0 0 24px;">
-                Please review the full offer details in the HireAI portal and confirm your acceptance.
+                Please review the full offer details in the ImFhired portal and confirm your acceptance.
                 If you have any questions or would like to discuss the terms, please reply to this email.
               </p>
 
@@ -524,8 +524,8 @@ async def send_offer(
           <!-- FOOTER -->
           <tr>
             <td style="background:#f8fafc;padding:24px 40px;text-align:center;border-top:1px solid #e2e8f0;">
-              <p style="color:#64748b;font-size:13px;margin:0 0 4px;font-weight:600;">Powered by HireAI</p>
-              <p style="color:#94a3b8;font-size:12px;margin:0;">AI-Powered Recruitment Platform &bull; <a href="https://ashishai.in" style="color:#6366f1;text-decoration:none;">ashishai.in</a></p>
+              <p style="color:#64748b;font-size:13px;margin:0 0 4px;font-weight:600;">Powered by ImFhired</p>
+              <p style="color:#94a3b8;font-size:12px;margin:0;">The Next Door for Experienced Talent &bull; <a href="https://imfhired.in" style="color:#6366f1;text-decoration:none;">ashishai.in</a></p>
             </td>
           </tr>
 
@@ -536,7 +536,7 @@ async def send_offer(
 </body>
 </html>"""
 
-    subject = f"Job Offer: {job_title} — HireAI"
+    subject = f"Job Offer: {job_title} — ImFhired"
     email_sent = await _send_resend_email(candidate_email, subject, html_body)
 
     if not email_sent:

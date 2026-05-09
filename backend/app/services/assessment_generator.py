@@ -621,7 +621,7 @@ class AssessmentGeneratorService:
             return f"{int(v)}/100" if v is not None else "N/A"
 
         return f"""
-HireAI Assessment Report — {candidate_name}
+ImFhired Assessment Report — {candidate_name}
 Role: {job_title}
 Session Status: {status_label}
 

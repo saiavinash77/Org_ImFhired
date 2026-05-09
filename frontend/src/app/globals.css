@@ -9,10 +9,10 @@
   --font-satoshi: 'Satoshi', 'Inter', sans-serif;
   --font-cabinet: 'Cabinet Grotesk', 'Inter', sans-serif;
   
-  /* Brand Colors */
-  --color-brand: #6366f1;
-  --color-brand-dark: #4338ca;
-  --color-accent: #d946ef;
+  /* Brand Colors — Blue */
+  --color-brand: #2563eb;
+  --color-brand-dark: #1d4ed8;
+  --color-accent: #3b82f6;
   
   /* Surfaces */
   --color-bg: #ffffff;
@@ -20,23 +20,23 @@
   --color-border: #e2e8f0;
   
   /* ─── Glassmorphism System ─── */
-  --glass-bg:            rgba(255, 255, 255, 0.72);
-  --glass-bg-hover:      rgba(255, 255, 255, 0.82);
-  --glass-border:        rgba(255, 255, 255, 0.55);
-  --glass-border-top:    rgba(255, 255, 255, 0.85);
-  --glass-shadow:        0 8px 32px rgba(0, 0, 0, 0.10), 0 2px 8px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.7);
-  --glass-shadow-hover:  0 16px 48px rgba(0, 0, 0, 0.13), 0 4px 12px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.8);
-  --glass-blur:          blur(20px) saturate(180%);
+  --glass-bg:            rgba(255, 255, 255, 0.85);
+  --glass-bg-hover:      rgba(255, 255, 255, 0.95);
+  --glass-border:        rgba(226, 232, 240, 0.8);
+  --glass-border-top:    rgba(255, 255, 255, 0.95);
+  --glass-shadow:        0 4px 24px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0,0,0,0.04);
+  --glass-shadow-hover:  0 8px 32px rgba(0, 0, 0, 0.10), 0 2px 8px rgba(0,0,0,0.06);
+  --glass-blur:          blur(16px) saturate(160%);
 
-  --glass-dark-bg:       rgba(10, 15, 36, 0.82);
-  --glass-dark-border:   rgba(255, 255, 255, 0.07);
-  --glass-dark-shadow:   0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.06);
+  --glass-dark-bg:       rgba(15, 23, 42, 0.92);
+  --glass-dark-border:   rgba(255, 255, 255, 0.06);
+  --glass-dark-shadow:   0 8px 32px rgba(0, 0, 0, 0.3);
 
-  /* ─── Page Ambient Background ─── */
-  --page-bg: #f0f2ff;
-  --orb-1: rgba(99, 102, 241, 0.18);   /* indigo top-right */
-  --orb-2: rgba(217, 70, 239, 0.12);   /* pink center-right */
-  --orb-3: rgba(59, 130, 246, 0.12);   /* blue bottom-left */
+  /* ─── Page Background ─── */
+  --page-bg: #f8fafc;
+  --orb-1: rgba(37, 99, 235, 0.08);
+  --orb-2: rgba(59, 130, 246, 0.06);
+  --orb-3: rgba(147, 197, 253, 0.08);
 
   /* Spacing & Radius */
   --radius-card: 1.25rem;
@@ -107,9 +107,9 @@ h1, h2, h3, h4, h5, h6 {
   filter: blur(72px);
   will-change: transform;
 }
-.orb-brand  { background: rgba(99, 102, 241, 0.22); }
-.orb-accent { background: rgba(217, 70, 239, 0.16); }
-.orb-blue   { background: rgba(59, 130, 246, 0.18); }
+.orb-brand  { background: rgba(37, 99, 235, 0.15); }
+.orb-accent { background: rgba(59, 130, 246, 0.12); }
+.orb-blue   { background: rgba(147, 197, 253, 0.15); }
 
 /* ═══════════════════════════════════════════════
    GLASS EFFECT — base
@@ -170,9 +170,9 @@ h1, h2, h3, h4, h5, h6 {
   transition: all 0.2s cubic-bezier(0.4,0,0.2,1);
 }
 .glass-input:focus {
-  background: rgba(255, 255, 255, 0.85);
-  border-color: rgba(99, 102, 241, 0.5);
-  box-shadow: 0 0 0 3px rgba(99,102,241,0.12), 0 2px 8px rgba(99,102,241,0.1);
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(37, 99, 235, 0.4);
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.08);
   outline: none;
 }
 .glass-input::placeholder { color: rgba(100,116,139,0.7); }
@@ -209,16 +209,16 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ─── Stat card color accent bar ─── */
-.glass-stat-brand { border-top: 2px solid #6366f1; }
-.glass-stat-purple { border-top: 2px solid #a855f7; }
-.glass-stat-blue   { border-top: 2px solid #3b82f6; }
+.glass-stat-brand { border-top: 2px solid #2563eb; }
+.glass-stat-purple { border-top: 2px solid #3b82f6; }
+.glass-stat-blue   { border-top: 2px solid #60a5fa; }
 .glass-stat-green  { border-top: 2px solid #22c55e; }
 
 /* ═══════════════════════════════════════════════
    GRADIENT TEXT
 ═══════════════════════════════════════════════ */
 .gradient-text {
-  background: linear-gradient(135deg, #6366f1 0%, #d946ef 60%, #f59e0b 100%);
+  background: linear-gradient(135deg, #2563eb 0%, #3b82f6 60%, #60a5fa 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;

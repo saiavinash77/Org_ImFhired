@@ -173,8 +173,8 @@ function ScheduleContent() {
     <div className="min-h-screen" style={{ background: '#f8fafc' }}>
       <nav className="h-[68px] bg-white border-b border-surface-100 flex items-center px-6 sticky top-0 z-30" style={{ boxShadow: '0 1px 0 #f1f5f9' }}>
         <Link href="/" className="flex items-center gap-2.5 group">
-          <Image src="/hireai-logo.png" alt="HireAI" width={38} height={38} className="rounded-xl object-cover logo-glow group-hover:scale-105 transition-transform" />
-          <span className="text-lg font-bold text-surface-900 tracking-tight">HireAI</span>
+          <Image src="/imfhired-logo.png" alt="ImFhired" width={38} height={38} className="rounded-xl object-cover logo-glow group-hover:scale-105 transition-transform" />
+          <span className="text-lg font-bold text-surface-900 tracking-tight">ImFhired</span>
         </Link>
       </nav>
 

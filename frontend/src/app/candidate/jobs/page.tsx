@@ -38,13 +38,13 @@ export default function CandidateJobsPage() {
       "@context": "https://schema.org/",
       "@type": "JobPosting",
       "title": job.title,
-      "description": job.description || "Join our team at HireAI.",
+      "description": job.description || "Join our team at ImFhired.",
       "datePosted": job.created_at || new Date().toISOString(),
       "validThrough": new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       "employmentType": job.job_type === 'full_time' ? 'FULL_TIME' : 'CONTRACTOR',
       "hiringOrganization": {
         "@type": "Organization",
-        "name": "HireAI",
+        "name": "ImFhired",
         "sameAs": window.location.origin
       },
       "jobLocation": {
@@ -71,7 +71,7 @@ export default function CandidateJobsPage() {
 
   const handleShare = (job: any, platform: 'linkedin' | 'whatsapp') => {
     const jobUrl = `${window.location.origin}/candidate/jobs?id=${job.id}`
-    const text = `I found a great job: ${job.title}!\n📍 ${job.location || 'Remote'} | ${job.job_type?.replace('_', ' ') || 'Full-time'}\n\nCheck it out on HireAI.`
+    const text = `I found a great job: ${job.title}!\n📍 ${job.location || 'Remote'} | ${job.job_type?.replace('_', ' ') || 'Full-time'}\n\nCheck it out on ImFhired.`
     
     let url = ''
     if (platform === 'linkedin') {

@@ -40,7 +40,7 @@ export default function NotificationBell() {
   const [loading, setLoading] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
-  const token = typeof window !== 'undefined' ? localStorage.getItem('hireai_token') : null
+  const token = typeof window !== 'undefined' ? localStorage.getItem('imfhired_token') : null
   const API = getApiUrl()
 
   const fetchUnread = async () => {

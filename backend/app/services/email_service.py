@@ -21,7 +21,7 @@ async def _send_resend_email(to_email: str, subject: str, html_body: str) -> boo
 
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"] = "HireAI <onboarding@resend.dev>"
+        msg["From"] = "ImFhired <onboarding@resend.dev>"
         msg["To"] = to_email
         msg["Reply-To"] = "noreply@resend.dev"
 
@@ -31,7 +31,7 @@ async def _send_resend_email(to_email: str, subject: str, html_body: str) -> boo
         # Connect to Resend SMTP with explicit timeout to avoid indefinite hangs
         with smtplib.SMTP_SSL("smtp.resend.com", 465, timeout=30) as server:
             server.login("resend", settings.RESEND_API_KEY)
-            server.sendmail("hello@ashishai.in", to_email, msg.as_string())
+            server.sendmail("onboarding@resend.dev", to_email, msg.as_string())
 
         print(f"✅ Email sent successfully to {to_email}.")
         return True
@@ -86,7 +86,7 @@ async def send_interview_invite(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>You are Shortlisted - HireAI</title>
+  <title>You are Shortlisted - ImFhired</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f0f2f5;font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f2f5;padding:40px 16px;">
@@ -196,8 +196,8 @@ async def send_interview_invite(
           <!-- FOOTER -->
           <tr>
             <td style="background:#f8fafc;padding:24px 40px;text-align:center;border-top:1px solid #e2e8f0;">
-              <p style="color:#64748b;font-size:13px;margin:0 0 4px;font-weight:600;">Powered by HireAI</p>
-              <p style="color:#94a3b8;font-size:12px;margin:0;">AI-Powered Recruitment Platform &bull; <a href="https://ashishai.in" style="color:#6366f1;text-decoration:none;">ashishai.in</a></p>
+              <p style="color:#64748b;font-size:13px;margin:0 0 4px;font-weight:600;">Powered by ImFhired</p>
+              <p style="color:#94a3b8;font-size:12px;margin:0;">The Next Door for Experienced Talent &bull; <a href="https://imfhired.in" style="color:#6366f1;text-decoration:none;">ashishai.in</a></p>
             </td>
           </tr>
 
@@ -208,7 +208,7 @@ async def send_interview_invite(
 </body>
 </html>"""
 
-    subject = f"You're Shortlisted! Schedule Your AI Interview - HireAI ({match_score}% Match)"
+    subject = f"You're Shortlisted! Schedule Your AI Interview - ImFhired ({match_score}% Match)"
     return await _send_resend_email(to_email, subject, html_body)
 
 
@@ -232,7 +232,7 @@ async def send_calendar_invite(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Interview Confirmed - HireAI</title>
+  <title>Interview Confirmed - ImFhired</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f0f2f5;font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f2f5;padding:40px 16px;">
@@ -315,8 +315,8 @@ async def send_calendar_invite(
           <!-- FOOTER -->
           <tr>
             <td style="background:#f8fafc;padding:24px 40px;text-align:center;border-top:1px solid #e2e8f0;">
-              <p style="color:#64748b;font-size:13px;margin:0 0 4px;font-weight:600;">Powered by HireAI</p>
-              <p style="color:#94a3b8;font-size:12px;margin:0;">AI-Powered Recruitment Platform &bull; <a href="https://ashishai.in" style="color:#6366f1;text-decoration:none;">ashishai.in</a></p>
+              <p style="color:#64748b;font-size:13px;margin:0 0 4px;font-weight:600;">Powered by ImFhired</p>
+              <p style="color:#94a3b8;font-size:12px;margin:0;">The Next Door for Experienced Talent &bull; <a href="https://imfhired.in" style="color:#6366f1;text-decoration:none;">ashishai.in</a></p>
             </td>
           </tr>
 
@@ -327,7 +327,7 @@ async def send_calendar_invite(
 </body>
 </html>"""
 
-    subject = f"Interview Confirmed: {job_title} on {formatted_date} at {formatted_time} - HireAI"
+    subject = f"Interview Confirmed: {job_title} on {formatted_date} at {formatted_time} - ImFhired"
     return await _send_resend_email(to_email, subject, html_body)
 
 
@@ -366,7 +366,7 @@ async def send_assessment_ready(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Assessment Complete - HireAI</title>
+  <title>Assessment Complete - ImFhired</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f0f2f5;font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f2f5;padding:40px 16px;">
@@ -436,8 +436,8 @@ async def send_assessment_ready(
           <!-- FOOTER -->
           <tr>
             <td style="background:#f8fafc;padding:24px 40px;text-align:center;border-top:1px solid #e2e8f0;">
-              <p style="color:#64748b;font-size:13px;margin:0 0 4px;font-weight:600;">Powered by HireAI</p>
-              <p style="color:#94a3b8;font-size:12px;margin:0;">AI-Powered Recruitment Platform &bull; <a href="https://ashishai.in" style="color:#6366f1;text-decoration:none;">ashishai.in</a></p>
+              <p style="color:#64748b;font-size:13px;margin:0 0 4px;font-weight:600;">Powered by ImFhired</p>
+              <p style="color:#94a3b8;font-size:12px;margin:0;">The Next Door for Experienced Talent &bull; <a href="https://imfhired.in" style="color:#6366f1;text-decoration:none;">ashishai.in</a></p>
             </td>
           </tr>
 
@@ -448,7 +448,7 @@ async def send_assessment_ready(
 </body>
 </html>"""
 
-    subject = f"Assessment Ready: {candidate_name} scored {overall_score}/100 ({label}) - HireAI"
+    subject = f"Assessment Ready: {candidate_name} scored {overall_score}/100 ({label}) - ImFhired"
     return await _send_resend_email(to_email, subject, html_body)
 
 
@@ -467,7 +467,7 @@ async def send_candidate_scorecard_email(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Your Interview Scorecard is Ready - HireAI</title>
+  <title>Your Interview Scorecard is Ready - ImFhired</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f0f2f5;font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f2f5;padding:40px 16px;">
@@ -485,7 +485,7 @@ async def send_candidate_scorecard_email(
           <tr>
             <td style="padding:36px 40px 32px;">
               <p style="color:#334155;font-size:15px;line-height:1.75;margin:0 0 28px;">
-                Hi <strong>{candidate_name}</strong>, thank you for completing your HireAI interview for the <strong>{job_title}</strong> role. Your assessment report has been generated.
+                Hi <strong>{candidate_name}</strong>, thank you for completing your ImFhired interview for the <strong>{job_title}</strong> role. Your assessment report has been generated.
               </p>
               
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
@@ -514,8 +514,8 @@ async def send_candidate_scorecard_email(
           <!-- FOOTER -->
           <tr>
             <td style="background:#f8fafc;padding:24px 40px;text-align:center;border-top:1px solid #e2e8f0;">
-              <p style="color:#64748b;font-size:13px;margin:0 0 4px;font-weight:600;">Powered by HireAI</p>
-              <p style="color:#94a3b8;font-size:12px;margin:0;">AI-Powered Recruitment Platform &bull; <a href="https://ashishai.in" style="color:#6366f1;text-decoration:none;">ashishai.in</a></p>
+              <p style="color:#64748b;font-size:13px;margin:0 0 4px;font-weight:600;">Powered by ImFhired</p>
+              <p style="color:#94a3b8;font-size:12px;margin:0;">The Next Door for Experienced Talent &bull; <a href="https://imfhired.in" style="color:#6366f1;text-decoration:none;">ashishai.in</a></p>
             </td>
           </tr>
         </table>
@@ -525,6 +525,6 @@ async def send_candidate_scorecard_email(
 </body>
 </html>"""
     
-    subject = f"Your Interview Results: {job_title} - HireAI"
+    subject = f"Your Interview Results: {job_title} - ImFhired"
     return await _send_resend_email(to_email, subject, html_body)
 

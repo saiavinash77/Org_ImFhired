@@ -209,7 +209,7 @@ export default function CandidateScorecardPage({ params }: { params: { interview
 
     const fetchAssessment = async (attempt = 0) => {
       try {
-        const token = localStorage.getItem('hireai_token') || localStorage.getItem('sb-access-token') || ''
+        const token = localStorage.getItem('imfhired_token') || localStorage.getItem('sb-access-token') || ''
         const headers: Record<string, string> = {}
         if (token) headers['Authorization'] = `Bearer ${token}`
         const res = await axios.get(`${getApiUrl()}/api/v1/assessments/${params.interviewId}`, { headers })
@@ -340,7 +340,7 @@ export default function CandidateScorecardPage({ params }: { params: { interview
   const handleRegenerate = async () => {
     setRegenerating(true)
     try {
-      const token = localStorage.getItem('hireai_token') || localStorage.getItem('sb-access-token') || ''
+      const token = localStorage.getItem('imfhired_token') || localStorage.getItem('sb-access-token') || ''
       const headers: Record<string, string> = {}
       if (token) headers['Authorization'] = `Bearer ${token}`
       await axios.post(`${getApiUrl()}/api/v1/assessments/${params.interviewId}/regenerate`, {}, { headers })
@@ -365,7 +365,7 @@ export default function CandidateScorecardPage({ params }: { params: { interview
             <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center">
               <Brain className="w-4 h-4 text-white" />
             </div>
-            <span className="text-white font-black text-sm tracking-wider">HireAI</span>
+            <span className="text-white font-black text-sm tracking-wider">ImFhired</span>
           </div>
           <Link href="/candidate/dashboard" className="text-white/40 hover:text-white text-sm font-medium transition-colors">
             Dashboard
@@ -436,7 +436,7 @@ export default function CandidateScorecardPage({ params }: { params: { interview
               <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center">
                 <Brain className="w-4 h-4 text-white" />
               </div>
-              <span className="text-white font-black text-sm tracking-wider">HireAI</span>
+              <span className="text-white font-black text-sm tracking-wider">ImFhired</span>
             </div>
             <Link href="/candidate/dashboard" className="text-white/40 hover:text-white text-sm font-medium transition-colors flex items-center gap-1">
               Dashboard <ChevronRight className="w-4 h-4" />

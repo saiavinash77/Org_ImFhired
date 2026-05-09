@@ -181,7 +181,7 @@ export default function HRAssessmentPage({ params }: { params: { interviewId: st
     useEffect(() => {
         const fetchAssessment = async () => {
             try {
-                const token = localStorage.getItem('hireai_token')
+                const token = localStorage.getItem('imfhired_token')
                 const API_URL = getApiUrl()
                 const res = await axios.get(`${API_URL}/api/v1/assessments/${params.interviewId}`, {
                     headers: { Authorization: `Bearer ${token}` }
@@ -206,7 +206,7 @@ export default function HRAssessmentPage({ params }: { params: { interviewId: st
         if (transcript.length > 0) return // already loaded
         setTranscriptLoading(true); setTranscriptError(null)
         try {
-            const token = localStorage.getItem('hireai_token')
+            const token = localStorage.getItem('imfhired_token')
             const res = await axios.get(
                 `${getApiUrl()}/api/v1/assessments/${params.interviewId}/transcript`,
                 { headers: { Authorization: `Bearer ${token}` } }
@@ -226,7 +226,7 @@ export default function HRAssessmentPage({ params }: { params: { interviewId: st
     const handleSendOffer = async () => {
         setSendingOffer(true); setOfferError(null)
         try {
-            const token = localStorage.getItem('hireai_token')
+            const token = localStorage.getItem('imfhired_token')
             const res = await axios.post(
                 `${getApiUrl()}/api/v1/assessments/${params.interviewId}/send-offer`, {},
                 { headers: { Authorization: `Bearer ${token}` } }
@@ -812,7 +812,7 @@ export default function HRAssessmentPage({ params }: { params: { interviewId: st
                                                         <div className={`max-w-[75%] ${ isAI ? '' : 'items-end'} flex flex-col gap-1`}>
                                                             <div className={`flex items-center gap-2 ${ isAI ? '' : 'flex-row-reverse'}`}>
                                                                 <span className="text-[11px] font-black text-surface-600">
-                                                                    {isAI ? 'HireAI' : candidateName}
+                                                                    {isAI ? 'ImFhired' : candidateName}
                                                                 </span>
                                                                 {ts && <span className="text-[10px] text-surface-300 font-medium">{ts}</span>}
                                                             </div>

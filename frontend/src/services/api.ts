@@ -1,5 +1,5 @@
 /**
- * API Service — Typed fetch wrappers for HireAI backend.
+ * API Service — Typed fetch wrappers for ImFhired backend.
  * All endpoints point to FastAPI at NEXT_PUBLIC_API_URL (see getApiUrl).
  */
 
@@ -23,7 +23,7 @@ class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('hireai_token') : null
+  const token = typeof window !== 'undefined' ? localStorage.getItem('imfhired_token') : null
 
   const res = await fetch(`${BASE_URL}${path}`, {
     ...options,
@@ -64,7 +64,7 @@ export const authApi = {
 
 export const profilesApi = {
   uploadAvatar: (formData: FormData) => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('hireai_token') : null
+    const token = typeof window !== 'undefined' ? localStorage.getItem('imfhired_token') : null
     return fetch(`${BASE_URL}/api/v1/profiles/me/avatar`, {
       method: 'POST',
       body: formData,

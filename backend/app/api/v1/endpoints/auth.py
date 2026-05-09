@@ -109,7 +109,7 @@ async def register(data: UserCreate):
     except ClientError as e:
         code = e.response["Error"]["Code"]
         if code == "UsernameExistsException":
-            # Email exists in Cognito — check if same role in RDS
+            # Email exists in Cognito — check RDS
             async with pool.acquire() as conn:
                 existing = await conn.fetchrow(
                     "SELECT id, role FROM users WHERE email = $1", data.email
@@ -120,9 +120,44 @@ async def register(data: UserCreate):
                 else:
                     raise HTTPException(
                         status_code=400,
-                        detail=f"This email is already registered as a {existing['role']}. Please use a different email or sign in with your existing role."
+                        detail=f"This email is already registered as a {existing['role']}. Please use a different email."
                     )
-            raise HTTPException(status_code=400, detail="Email already registered. Please sign in.")
+            # Cognito has user but RDS doesn't — allow re-registration by resetting password
+            try:
+                await asyncio.to_thread(
+                    lambda: cognito.admin_set_user_password(
+                        UserPoolId=settings.COGNITO_USER_POOL_ID,
+                        Username=data.email,
+                        Password=data.password,
+                        Permanent=True,
+                    )
+                )
+            except Exception:
+                pass
+            # Fall through to RDS insert below
+            user_id = str(uuid.uuid4())
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "INSERT INTO users (id, email, role, cognito_username) VALUES ($1, $2, $3, $4) ON CONFLICT (email) DO NOTHING",
+                    user_id, data.email, data.role.value, data.email,
+                )
+                await conn.execute(
+                    """
+                    INSERT INTO profiles (id, full_name, phone, company_name)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (id) DO UPDATE SET full_name = EXCLUDED.full_name
+                    """,
+                    user_id, data.full_name, data.phone,
+                    data.company_name if data.role == UserRole.RECRUITER else None,
+                )
+            token = create_access_token(user_id, data.role.value)
+            profile_data = {"id": user_id, "full_name": data.full_name, "phone": data.phone}
+            return TokenResponse(
+                access_token=token,
+                user=UserResponse(id=user_id, email=data.email, role=data.role, profile=profile_data, created_at=datetime.utcnow()),
+            )
+        if code == "InvalidPasswordException":
+            raise HTTPException(status_code=400, detail="Password must be at least 8 characters and contain a number.")
         raise HTTPException(status_code=400, detail=f"Registration failed: {e.response['Error']['Message']}")
 
     # Set permanent password (skip FORCE_CHANGE_PASSWORD state)
@@ -257,21 +292,24 @@ async def logout(current_user: dict = Depends(get_current_user)):
 
 # ── Forgot password ───────────────────────────────────────────────────────────
 
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
 @router.post("/forgot-password")
-async def forgot_password(email: str):
+async def forgot_password(data: ForgotPasswordRequest):
     """Trigger Cognito forgot-password flow (sends reset code via email)."""
     cognito = get_cognito()
     try:
         kwargs: dict = {
             "ClientId": settings.COGNITO_CLIENT_ID,
-            "Username": email,
+            "Username": data.email,
         }
         if settings.COGNITO_CLIENT_SECRET:
-            kwargs["SecretHash"] = _cognito_secret_hash(email)
+            kwargs["SecretHash"] = _cognito_secret_hash(data.email)
         await asyncio.to_thread(lambda: cognito.forgot_password(**kwargs))
     except Exception:
         pass  # Never reveal whether the email exists
-    return {"message": "If an account exists with that email, a password reset code has been sent."}
+    return {"message": "If an account exists with that email, a reset code has been sent."}
 
 
 # ── Confirm forgot password ───────────────────────────────────────────────────

@@ -186,7 +186,7 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
     const protocol = apiUrl.startsWith('https') ? 'wss:' : 'ws:'
     const host = apiUrl.replace(/^https?:\/\//, '')
     const token = typeof window !== 'undefined'
-      ? (localStorage.getItem('hireai_token') || localStorage.getItem('sb-access-token') || 'mock')
+      ? (localStorage.getItem('imfhired_token') || localStorage.getItem('sb-access-token') || 'mock')
       : 'mock'
     const interviewId = params.interviewId || 'test'
 
@@ -681,9 +681,9 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
 
         {/* Logo */}
         <div className="flex items-center gap-3.5 mr-6">
-          <Image src="/hireai-logo.png" alt="HireAI Logo" width={44} height={44} className="rounded-xl shadow-xl object-cover logo-glow" />
+          <Image src="/imfhired-logo.png" alt="ImFhired Logo" width={44} height={44} className="rounded-xl shadow-xl object-cover logo-glow" />
           <div>
-            <div className="text-white font-black text-lg leading-none tracking-tight">HireAI</div>
+            <div className="text-white font-black text-lg leading-none tracking-tight">ImFhired</div>
             <div className="text-white/30 text-[10px] leading-none mt-1.5 uppercase font-bold tracking-[0.2em]">Interviewer</div>
           </div>
         </div>
@@ -740,14 +740,14 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
               style={{ background: 'linear-gradient(135deg, #0d1117 0%, #131820 100%)', border: '1px solid rgba(99,102,241,0.2)', boxShadow: `0 0 40px rgba(99,102,241,0.08)` }}>
               <div className="absolute top-4 left-4 z-20 flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest backdrop-blur-xl"
                 style={{ background: 'rgba(13,15,22,0.8)', border: '1px solid rgba(99,102,241,0.3)', color: '#a5b4fc' }}>
-                <Brain className="w-3.5 h-3.5" /> HireAI
+                <Brain className="w-3.5 h-3.5" /> ImFhired
               </div>
 
               <div className="relative z-10 flex flex-col items-center gap-8">
                 <div className="relative">
                   <PulseRing active={aiSpeaking} color="#6366f1" />
                   <div className={`relative w-48 h-48 rounded-full overflow-hidden transition-all duration-700 ${aiSpeaking ? 'ring-4 ring-brand-500 ring-offset-8 ring-offset-transparent shadow-2xl scale-105' : 'ring-1 ring-white/10 shadow-sm'}`}>
-                    <Image src="/avatars/hireai-avatar.png" alt="HireAI" fill className="object-cover" priority />
+                    <Image src="/avatars/imfhired-avatar.png" alt="ImFhired" fill className="object-cover" priority />
                   </div>
                 </div>
                 <div className="flex flex-col items-center gap-3">
@@ -810,7 +810,7 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
                 }}>
                 <Shield className={`w-3.5 h-3.5 shrink-0 ${proctorStatus.isWarning ? 'animate-spin' : ''}`} />
                 <span className="leading-tight text-right">
-                  {proctorStatus.isWarning ? <>HireAI<br />shield · alert</> : <>HireAI<br />shield · on</>}
+                  {proctorStatus.isWarning ? <>ImFhired<br />shield · alert</> : <>ImFhired<br />shield · on</>}
                 </span>
               </div>
 
@@ -871,7 +871,7 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
             <div ref={transcriptRef} className="flex-1 overflow-y-auto p-6 space-y-6">
               {transcript.map((msg, i) => (
                 <div key={i} className={`flex flex-col gap-2 ${msg.speaker === 'ai' ? 'items-start' : 'items-end'}`}>
-                  <div className="text-[9px] font-black uppercase tracking-widest text-white/40">{msg.speaker === 'ai' ? 'HireAI' : 'You'}</div>
+                  <div className="text-[9px] font-black uppercase tracking-widest text-white/40">{msg.speaker === 'ai' ? 'ImFhired' : 'You'}</div>
                   <div className={`px-5 py-4 rounded-2xl text-[13px] leading-relaxed transition-opacity duration-300 ${
                     msg.speaker === 'ai'
                       ? 'bg-brand-500/10 text-brand-50 border border-brand-500/20 rounded-tl-sm'

@@ -89,7 +89,7 @@ async def build_context_prompt(recruiter_id: str) -> str:
                 candidates_text = "\n".join(candidate_lines)
 
         return f"""
-You are the embedded AI Assistant inside the HireAI Recruiter Dashboard.
+You are the embedded AI Assistant inside the ImFhired Recruiter Dashboard.
 Your job is to provide instant, helpful insights directly to the recruiter based on their current active data.
 
 CURRENT ACTIVE JOB POSTINGS:
@@ -107,7 +107,7 @@ Guidelines:
 
     except Exception as e:
         logger.error(f"Failed to fetch context for AI Assistant: {e}")
-        return "You are the HireAI Assistant. An error occurred fetching current data, so you only have general knowledge."
+        return "You are the ImFhired Assistant. An error occurred fetching current data, so you only have general knowledge."
 
 
 @router.post("/", response_model=ChatResponse)

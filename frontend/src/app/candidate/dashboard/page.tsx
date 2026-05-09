@@ -201,9 +201,9 @@ function CandidateDashboardInner() {
       <nav className="h-[72px] bg-white border-b border-surface-100 flex items-center px-6 sticky top-0 z-30 shadow-sm">
         <div className="max-w-7xl mx-auto w-full flex items-center justify-between">
           <Link href="/candidate/dashboard" className="flex items-center gap-2.5 group">
-            <Image src="/hireai-logo.png" alt="HireAI" width={40} height={40} className="rounded-xl object-cover logo-glow group-hover:scale-105 transition-transform" />
+            <Image src="/imfhired-logo.png" alt="ImFhired" width={40} height={40} className="rounded-xl object-cover logo-glow group-hover:scale-105 transition-transform" />
             <div>
-               <span className="text-lg font-black text-surface-900 tracking-tight block leading-none">HireAI</span>
+               <span className="text-lg font-black text-surface-900 tracking-tight block leading-none">ImFhired</span>
                <span className="text-[10px] font-bold text-brand-600 uppercase tracking-widest">Candidate</span>
             </div>
           </Link>

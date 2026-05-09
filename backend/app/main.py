@@ -1,5 +1,5 @@
 """
-HireAI — AI Interviewer Platform
+ImFhired — AI Interviewer Platform
 FastAPI Application Entry Point
 """
 import traceback
@@ -37,13 +37,13 @@ async def lifespan(app: FastAPI):
     print("Database initialized")
     print(f">>> SETTINGS: MATCH_THRESHOLD={settings.MATCH_THRESHOLD}")
     print(f">>> SETTINGS: RESEND_API_KEY={'SET' if settings.RESEND_API_KEY else 'NOT SET'}")
-    print("HireAI Backend started on port 8002")
+    print("ImFhired Backend started on port 8002")
     yield
-    print("HireAI Backend shutting down")
+    print("ImFhired Backend shutting down")
 
 
 app = FastAPI(
-    title="HireAI API",
+    title="ImFhired API",
     description="AI-Powered Interview & Skill Assessment Platform",
     version="1.0.0",
     docs_url="/api/docs",
@@ -127,6 +127,6 @@ app.include_router(realtime_proxy.router, prefix="/ws/v1", tags=["Realtime Speec
 async def health_check():
     return {
         "status": "healthy",
-        "service": "HireAI API",
+        "service": "ImFhired API",
         "version": "1.0.0",
     }

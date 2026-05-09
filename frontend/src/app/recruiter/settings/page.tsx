@@ -331,7 +331,7 @@ export default function SettingsPage() {
                   </div>
                   <div>
                     <div className="font-bold text-surface-900 text-lg">{`${firstName} ${lastName}`.trim() || 'Recruiter'}</div>
-                    <div className="text-sm text-surface-500 mb-3">{headline || 'Recruiter'} · {companyName || 'HireAI Customer'}</div>
+                    <div className="text-sm text-surface-500 mb-3">{headline || 'Recruiter'} · {companyName || 'ImFhired Customer'}</div>
                     <button onClick={() => avatarInputRef.current?.click()} className="text-xs font-bold text-brand-600 hover:text-brand-700 underline">Upload new photo</button>
                   </div>
                 </div>
@@ -515,7 +515,7 @@ export default function SettingsPage() {
           {/* ── AI Configuration ── */}
           {activeTab === 'ai' && (
             <div className="space-y-6">
-              <SectionHeader title="AI Configuration" desc="Fine-tune how the HireAI interview engine behaves" />
+              <SectionHeader title="AI Configuration" desc="Fine-tune how the ImFhired interview engine behaves" />
               <div className="bg-white rounded-2xl border border-surface-100 shadow-card p-6 space-y-6">
                 {aiConfig.map(cfg => (
                   <div key={cfg.key}>

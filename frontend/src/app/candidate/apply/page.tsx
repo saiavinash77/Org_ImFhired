@@ -60,7 +60,7 @@ function ApplyContent() {
 
     // ── Pre-fill if logged in as candidate; block recruiters ──
     const fetchProfile = async () => {
-      const token = localStorage.getItem('hireai_token')
+      const token = localStorage.getItem('imfhired_token')
       if (token) {
         try {
           const API_URL = getApiUrl()
@@ -70,7 +70,7 @@ function ApplyContent() {
           const profileData = res.data
 
           // Block recruiters/admins — they should not be applying for jobs
-          const role = profileData?.role || localStorage.getItem('hireai_role')
+          const role = profileData?.role || localStorage.getItem('imfhired_role')
           if (role === 'recruiter' || role === 'admin') {
             // Don't pre-fill recruiter details; just leave the form empty
             // so a real candidate can fill it manually
@@ -94,7 +94,7 @@ function ApplyContent() {
 
     // ── Verification status (candidate-side gate) ─────────────────────────
     const fetchVerification = async () => {
-      const token = localStorage.getItem('hireai_token')
+      const token = localStorage.getItem('imfhired_token')
       if (!token) {
         setVerificationLoading(false)
         return
@@ -139,7 +139,7 @@ function ApplyContent() {
       toast.error('Checking your verification status. Please try again in a moment.')
       return
     }
-    const token = typeof window !== 'undefined' ? localStorage.getItem('hireai_token') : null
+    const token = typeof window !== 'undefined' ? localStorage.getItem('imfhired_token') : null
     if (!isVerified) {
       if (!token) {
         toast.error('Please log in again to complete verification.')
@@ -243,8 +243,8 @@ function ApplyContent() {
       {/* Navbar */}
       <nav className="h-[68px] bg-white border-b border-surface-100 flex items-center px-6 sticky top-0 z-30" style={{ boxShadow: '0 1px 0 #f1f5f9' }}>
         <Link href="/" className="flex items-center gap-2.5 group">
-          <Image src="/hireai-logo.png" alt="HireAI" width={38} height={38} priority className="rounded-xl object-cover logo-glow group-hover:scale-105 transition-transform" />
-          <span className="text-lg font-bold text-surface-900 tracking-tight">HireAI</span>
+          <Image src="/imfhired-logo.png" alt="ImFhired" width={38} height={38} priority className="rounded-xl object-cover logo-glow group-hover:scale-105 transition-transform" />
+          <span className="text-lg font-bold text-surface-900 tracking-tight">ImFhired</span>
         </Link>
         <div className="ml-auto text-xs text-surface-500 font-medium">
            <Link href="/candidate/jobs" className="hover:text-brand-600 transition-colors">Browse Jobs</Link>

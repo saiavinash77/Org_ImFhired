@@ -10,7 +10,7 @@ load_dotenv(dotenv_path=str(Path(__file__).resolve().parent.parent.parent / ".en
 
 class Settings(BaseSettings):
     # ── App ───────────────────────────────────────────────────
-    APP_NAME: str = "HireAI"
+    APP_NAME: str = "ImFhired"
     APP_ENV: str = "development"
     DEBUG: bool = True
     USE_REDIS: bool = False
@@ -23,7 +23,7 @@ class Settings(BaseSettings):
         "http://localhost:3002",
         "http://127.0.0.1:3002",
         "https://hireai.vercel.app",
-        "https://hiring.ashishai.in",
+        "https://imfhired.in",
     ]
 
     # ── Database (AWS RDS PostgreSQL) ─────────────────────────
@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
-    SMTP_FROM_NAME: str = "HireAI"
+    SMTP_FROM_NAME: str = "ImFhired"
 
     # ── Langfuse (observability) ──────────────────────────────
     LANGFUSE_SECRET_KEY: str = ""

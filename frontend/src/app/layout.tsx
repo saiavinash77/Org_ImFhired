@@ -3,12 +3,12 @@ import './globals.css'
 import { Toaster } from 'react-hot-toast'
 
 export const metadata: Metadata = {
-  title: 'HireAI — Autonomous AI Interviewer Platform',
-  description: 'Intelligent AI-driven interviews. Resume parsing, JD matching, real-time video/voice interviews, and comprehensive skill assessments.',
-  keywords: 'AI interview, automated recruitment, skill assessment, video interview, HR automation',
+  title: 'ImFhired — The Next Door for Experienced Talent',
+  description: 'Stop mass-applying like a fresher. Get verified once, stand out everywhere. Built for laid-off professionals and those wanting to switch jobs.',
+  keywords: 'job search, laid off, career switch, AI interview, verified candidate, experienced professionals',
   openGraph: {
-    title: 'HireAI — Autonomous AI Interviewer Platform',
-    description: 'Automate your hiring with AI-powered video & voice interviews.',
+    title: "ImFhired — If You're Fired, Get Ready to Be Hired",
+    description: 'The next door for experienced professionals. Get verified, stand out, get hired.',
     type: 'website',
   },
 }

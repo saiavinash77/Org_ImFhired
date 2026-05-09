@@ -85,7 +85,7 @@ export default function AssessmentListPage() {
   useEffect(() => {
     const fetchAssessments = async () => {
       try {
-        const token = localStorage.getItem('hireai_token')
+        const token = localStorage.getItem('imfhired_token')
         const API_URL = getApiUrl()
         const res = await axios.get(`${API_URL}/api/v1/assessments/`, {
           headers: { Authorization: `Bearer ${token}` }

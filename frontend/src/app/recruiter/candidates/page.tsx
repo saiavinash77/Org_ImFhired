@@ -262,7 +262,7 @@ function CandidatesContent() {
                       {c.status === 'screening' && (
                         <button
                           onClick={async () => {
-                            const token = localStorage.getItem('hireai_token')
+                            const token = localStorage.getItem('imfhired_token')
                             const API_URL = (await import('@/lib/api')).getApiUrl()
                             const res = await fetch(`${API_URL}/api/v1/applications/${c.id}/invite`, {
                               method: 'POST',

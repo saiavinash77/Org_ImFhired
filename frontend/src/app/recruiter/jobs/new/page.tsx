@@ -41,7 +41,7 @@ export default function NewJobPage() {
   const generateWithAI = async () => {
     if (!form.title) return toast.error('Enter a job title first.')
     
-    const token = localStorage.getItem('hireai_token')
+    const token = localStorage.getItem('imfhired_token')
     if (!token) return toast.error('Auth required')
 
     setAiGenerating(true)
@@ -86,7 +86,7 @@ export default function NewJobPage() {
       return toast.error('Please fill all required fields.')
     }
 
-    const token = localStorage.getItem('hireai_token')
+    const token = localStorage.getItem('imfhired_token')
     if (!token) {
       toast.error('You must be logged in to post a job.')
       return router.push('/auth/login?role=recruiter')
