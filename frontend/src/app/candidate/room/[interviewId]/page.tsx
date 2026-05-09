@@ -446,27 +446,44 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
     return () => clearInterval(timer)
   }, [hasStarted])
 
-  // ── Camera: request on mount, not just when camOn changes ──────────────────
+  // ── Camera stream ref — persists across renders ──────────────────────────
+  const cameraStreamRef = useRef<MediaStream | null>(null)
+
+  // ── Camera: request on mount, stop when camOn turns false ────────────────
   useEffect(() => {
-    let stream: MediaStream | null = null
-    const startCamera = async () => {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-          videoRef.current.play().catch(() => {})
-        }
-        console.log('[Camera] Stream started')
-      } catch (err) {
-        console.error('[Camera] Access denied or failed:', err)
-        setCamOn(false)
-      }
-    }
-    if (camOn) startCamera()
-    return () => {
-      stream?.getTracks().forEach(t => t.stop())
+    if (camOn) {
+      // Start camera
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
+        .then(stream => {
+          cameraStreamRef.current = stream
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream
+            videoRef.current.play().catch(() => {})
+          }
+          console.log('[Camera] Stream started')
+        })
+        .catch(err => {
+          console.error('[Camera] Access denied:', err)
+          setCamOn(false)
+          // Show user-friendly message
+          if (err.name === 'NotAllowedError') {
+            alert('Camera access was denied. Please click the lock icon in your browser address bar and allow camera access, then refresh.')
+          }
+        })
+    } else {
+      // Stop camera tracks
+      cameraStreamRef.current?.getTracks().forEach(t => t.stop())
+      cameraStreamRef.current = null
+      if (videoRef.current) videoRef.current.srcObject = null
     }
   }, [camOn])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      cameraStreamRef.current?.getTracks().forEach(t => t.stop())
+    }
+  }, [])
 
   useEffect(() => {
     if (transcriptRef.current) transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
