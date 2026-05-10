@@ -27,6 +27,7 @@ function CandidateDashboardInner() {
   const [editForm, setEditForm] = useState({ full_name: '', headline: '' })
   const [saving, setSaving] = useState(false)
   const [applications, setApplications] = useState<any[]>([])
+  const [verificationStatus, setVerificationStatus] = useState<any>(null)
 
   const fetchDashboardData = async () => {
     try {
@@ -56,6 +57,16 @@ function CandidateDashboardInner() {
         headers: { Authorization: `Bearer ${token}` }
       })
       setApplications(appsRes.data)
+
+      // Fetch verification status
+      try {
+        const verRes = await axios.get(`${API_URL}/api/v1/verification/status`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        setVerificationStatus(verRes.data)
+      } catch (e) {
+        // non-fatal
+      }
 
     } catch (err: any) {
       console.error('Dashboard Fetch Error:', err)
@@ -222,6 +233,63 @@ function CandidateDashboardInner() {
       </nav>
 
       <div className="max-w-7xl mx-auto px-6 py-10">
+
+        {/* Verification Banner */}
+        {verificationStatus && !verificationStatus.verified && (
+          <div className={`mb-6 rounded-2xl p-5 flex items-center justify-between gap-4 ${
+            verificationStatus.status === 'pending' || verificationStatus.status === 'resume_uploaded'
+              ? 'bg-amber-50 border border-amber-200'
+              : 'bg-blue-50 border border-blue-200'
+          }`}>
+            <div className="flex items-center gap-4">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                verificationStatus.status === 'pending' ? 'bg-amber-100' : 'bg-blue-100'
+              }`}>
+                <AlertCircle className={`w-5 h-5 ${verificationStatus.status === 'pending' ? 'text-amber-600' : 'text-blue-600'}`} />
+              </div>
+              <div>
+                <p className="font-bold text-surface-900 text-sm">
+                  {verificationStatus.status === 'pending' || !verificationStatus.has_resume
+                    ? 'Upload your resume to get verified'
+                    : 'Complete your verification interview'}
+                </p>
+                <p className="text-xs text-surface-500 mt-0.5">
+                  {verificationStatus.status === 'pending' || !verificationStatus.has_resume
+                    ? 'Upload your resume below, then complete a short AI interview to get your Verified badge.'
+                    : 'You\'re one step away from your Verified badge. Complete the AI interview to unlock job applications.'}
+                </p>
+              </div>
+            </div>
+            {verificationStatus.has_resume && (
+              <button
+                onClick={async () => {
+                  try {
+                    const API_URL = getApiUrl()
+                    const res = await axios.post(`${API_URL}/api/v1/verification/start`, {}, {
+                      headers: { Authorization: `Bearer ${token}` }
+                    })
+                    router.push(`/candidate/verify/${res.data.interview_id}`)
+                  } catch (e: any) {
+                    toast.error(e.response?.data?.detail || 'Failed to start verification')
+                  }
+                }}
+                className="shrink-0 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl transition-colors"
+              >
+                Start Verification →
+              </button>
+            )}
+          </div>
+        )}
+
+        {verificationStatus?.verified && (
+          <div className="mb-6 rounded-2xl p-4 bg-green-50 border border-green-200 flex items-center gap-3">
+            <CheckCircle className="w-5 h-5 text-green-600 shrink-0" />
+            <div>
+              <span className="font-bold text-green-800 text-sm">✓ Verified Professional</span>
+              <span className="text-green-600 text-xs ml-2">Score: {Math.round(verificationStatus.score)}/100 — Your badge is active on all applications</span>
+            </div>
+          </div>
+        )}
         <div className="grid lg:grid-cols-3 gap-8">
           
           {/* Left Column: Profile & Resume */}
