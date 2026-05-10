@@ -120,6 +120,8 @@ app.include_router(verification.router, prefix="/api/v1/verification", tags=["Ve
 app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
 from app.api.v1.endpoints import assistant_chat
 app.include_router(assistant_chat.router, prefix="/api/v1/assistant", tags=["AI Assistant"])
+from app.api.v1.endpoints import interview_chat
+app.include_router(interview_chat.router, prefix="/api/v1/interview", tags=["Interview Chat"])
 app.include_router(realtime_proxy.router, prefix="/ws/v1", tags=["Realtime Speech-to-Speech"])
 
 
