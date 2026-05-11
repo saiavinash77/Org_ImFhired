@@ -211,6 +211,14 @@ async def register(data: UserCreate):
         "phone": data.phone,
         "company_name": data.company_name if data.role == UserRole.RECRUITER else None,
     }
+
+    # Send welcome email (non-blocking — don't fail registration if email fails)
+    try:
+        from app.services.email_service import send_welcome_email
+        import asyncio
+        asyncio.create_task(send_welcome_email(data.email, data.full_name, data.role.value))
+    except Exception:
+        pass
     return TokenResponse(
         access_token=token,
         user=UserResponse(

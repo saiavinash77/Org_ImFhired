@@ -1,0 +1,117 @@
+[
+  {
+    "id": "T1",
+    "title": "Landing Page Loads",
+    "description": "Verify the landing page loads with the correct headline and CTAs",
+    "steps": [
+      "Navigate to http://localhost:3002",
+      "Verify the text FIRED is visible on the page",
+      "Verify the text HIRED is visible on the page",
+      "Verify a button or link with text I'm Looking for Work is visible",
+      "Verify a button or link with text I'm Hiring is visible"
+    ]
+  },
+  {
+    "id": "T2",
+    "title": "Candidate Login Success",
+    "description": "Candidate can login and is redirected to dashboard or onboarding",
+    "steps": [
+      "Navigate to http://localhost:3002/auth/login",
+      "Click the button or link with text Job Seeker",
+      "Fill the email input with testcandidate@imfhired.com",
+      "Fill the password input with Test1234!",
+      "Click the Sign In button",
+      "Verify the URL contains /candidate"
+    ]
+  },
+  {
+    "id": "T3",
+    "title": "Recruiter Login Success",
+    "description": "Recruiter can login and sees the recruiter dashboard with sidebar",
+    "steps": [
+      "Navigate to http://localhost:3002/auth/login",
+      "Click the button or link with text Recruiter",
+      "Fill the email input with testrecruiter@imfhired.com",
+      "Fill the password input with Test1234!",
+      "Click the Sign In button",
+      "Verify the URL contains /recruiter",
+      "Verify the text Jobs is visible on the page"
+    ]
+  },
+  {
+    "id": "T4",
+    "title": "Wrong Password Shows Error",
+    "description": "Login with wrong password shows an error message",
+    "steps": [
+      "Navigate to http://localhost:3002/auth/login",
+      "Fill the email input with testcandidate@imfhired.com",
+      "Fill the password input with WrongPass999!",
+      "Click the Sign In button",
+      "Verify an error message containing Invalid is visible"
+    ]
+  },
+  {
+    "id": "T5",
+    "title": "Register Page Has Role Tabs",
+    "description": "Register page shows Job Seeker and Recruiter tabs",
+    "steps": [
+      "Navigate to http://localhost:3002/auth/register",
+      "Verify the text Job Seeker is visible",
+      "Verify the text Recruiter is visible",
+      "Verify the text Create Account is visible"
+    ]
+  },
+  {
+    "id": "T6",
+    "title": "Forgot Password Page Loads",
+    "description": "Forgot password page has email input and send button",
+    "steps": [
+      "Navigate to http://localhost:3002/auth/forgot-password",
+      "Verify an email input field is visible",
+      "Verify the text Send Reset Code is visible"
+    ]
+  },
+  {
+    "id": "T7",
+    "title": "Recruiter Jobs Page Loads",
+    "description": "Recruiter can access the jobs page after login",
+    "steps": [
+      "Navigate to http://localhost:3002/auth/login",
+      "Click the button or link with text Recruiter",
+      "Fill the email input with testrecruiter@imfhired.com",
+      "Fill the password input with Test1234!",
+      "Click the Sign In button",
+      "Navigate to http://localhost:3002/recruiter/jobs",
+      "Verify the URL contains /recruiter/jobs"
+    ]
+  },
+  {
+    "id": "T8",
+    "title": "Recruiter Candidates Page Loads",
+    "description": "Recruiter can access the candidates page",
+    "steps": [
+      "Navigate to http://localhost:3002/auth/login",
+      "Click the button or link with text Recruiter",
+      "Fill the email input with testrecruiter@imfhired.com",
+      "Fill the password input with Test1234!",
+      "Click the Sign In button",
+      "Navigate to http://localhost:3002/recruiter/candidates",
+      "Verify the URL contains /recruiter/candidates"
+    ]
+  },
+  {
+    "id": "T9",
+    "title": "Candidate Jobs Verification Gate",
+    "description": "Unverified candidate sees lock icon instead of Apply button on jobs page",
+    "steps": [
+      "Navigate to http://localhost:3002/auth/login",
+      "Click the button or link with text Job Seeker",
+      "Fill the email input with testcandidate@imfhired.com",
+      "Fill the password input with Test1234!",
+      "Click the Sign In button",
+      "Navigate to http://localhost:3002/candidate/jobs",
+      "Verify the page loads",
+      "Verify the text Verify First is visible on the page"
+    ]
+  }
+]

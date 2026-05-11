@@ -78,13 +78,16 @@ export default function ForgotPasswordPage() {
           {step === 'email' ? (
             <>
               <h1 className="text-2xl font-black text-gray-900 mb-1" style={{ letterSpacing: '-0.02em' }}>Reset your password</h1>
-              <p className="text-gray-500 text-sm mb-6">Enter your email and we'll send a reset code.</p>
+              <p className="text-gray-500 text-sm mb-6">Enter your email and we'll send a 6-digit reset code.</p>
               <form onSubmit={handleSendCode} className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Email</label>
                   <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
                     placeholder="you@example.com"
                     className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm font-medium text-gray-900 focus:outline-none focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/10 transition-all placeholder:text-gray-400" />
+                </div>
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-700">
+                  📧 The reset code will be sent from <strong>no-reply@verificationemail.com</strong> (AWS). Check your spam folder if you don't see it.
                 </div>
                 <button type="submit" disabled={loading}
                   className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-sm transition-colors">

@@ -528,3 +528,84 @@ async def send_candidate_scorecard_email(
     subject = f"Your Interview Results: {job_title} - ImFhired"
     return await _send_resend_email(to_email, subject, html_body)
 
+
+
+# ─── 5. Welcome Email (on registration) ──────────────────────────────────────
+async def send_welcome_email(
+    to_email: str,
+    full_name: str,
+    role: str,
+) -> bool:
+    """Send a welcome email when a new user registers."""
+    first_name = _get_display_name(full_name)
+    is_candidate = role == "candidate"
+
+    if is_candidate:
+        headline = f"Welcome to ImFhired, {first_name}!"
+        subline = "The next door for experienced talent"
+        body = (
+            f"Hi <strong>{first_name}</strong>,<br><br>"
+            "You've just joined ImFhired — the platform built for experienced professionals "
+            "who deserve better than mass-applying on LinkedIn.<br><br>"
+            "Here's what to do next:<br>"
+            "1. Complete your profile (takes 5 minutes)<br>"
+            "2. Complete your one-time verification interview<br>"
+            "3. Get your Verified badge and start applying<br><br>"
+            "Your verified score travels with every application — recruiters see you're pre-vetted before they even open your resume."
+        )
+        cta_text = "Complete Your Profile"
+        cta_link = f"{settings.FRONTEND_URL}/candidate/onboarding"
+        header_color = "linear-gradient(135deg,#2563eb 0%,#3b82f6 100%)"
+    else:
+        headline = f"Welcome to ImFhired, {first_name}!"
+        subline = "Start hiring verified professionals"
+        body = (
+            f"Hi <strong>{first_name}</strong>,<br><br>"
+            "Welcome to ImFhired — where every candidate has already been verified through an AI interview.<br><br>"
+            "Here's what to do next:<br>"
+            "1. Post your first job<br>"
+            "2. Browse verified candidates with their scores<br>"
+            "3. Invite the ones you like — they'll schedule directly<br><br>"
+            "No more sifting through unvetted resumes. Every candidate you see has proven their skills."
+        )
+        cta_text = "Post Your First Job"
+        cta_link = f"{settings.FRONTEND_URL}/recruiter/jobs/new"
+        header_color = "linear-gradient(135deg,#1e40af 0%,#2563eb 100%)"
+
+    html_body = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f0f2f5;font-family:'Segoe UI',-apple-system,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f2f5;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+        <tr>
+          <td style="background:{header_color};padding:40px;text-align:center;">
+            <div style="font-size:36px;margin-bottom:12px;">👋</div>
+            <h1 style="color:#fff;margin:0 0 8px;font-size:24px;font-weight:800;">{headline}</h1>
+            <p style="color:rgba(255,255,255,0.85);margin:0;font-size:14px;">{subline}</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:36px 40px 32px;">
+            <p style="color:#334155;font-size:15px;line-height:1.8;margin:0 0 28px;">{body}</p>
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+              <tr><td align="center">
+                <a href="{cta_link}" style="display:inline-block;background:{header_color};color:#fff;text-decoration:none;padding:16px 48px;border-radius:12px;font-weight:700;font-size:16px;">{cta_text}</a>
+              </td></tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="background:#f8fafc;padding:24px 40px;text-align:center;border-top:1px solid #e2e8f0;">
+            <p style="color:#64748b;font-size:13px;margin:0;">Powered by <strong>ImFhired</strong> &bull; The Next Door for Experienced Talent</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+
+    subject = f"Welcome to ImFhired, {first_name}! 🎉"
+    return await _send_resend_email(to_email, subject, html_body)

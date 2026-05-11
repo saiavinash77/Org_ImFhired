@@ -1,0 +1,130 @@
+{
+  "tech_stack": ["TypeScript", "Next.js 14", "React", "Tailwind CSS", "Python", "FastAPI", "PostgreSQL", "AWS Cognito", "AWS S3", "Groq API"],
+  "features": [
+    {
+      "name": "Landing Page",
+      "description": "Public landing page with hero headline IF YOU'RE FIRED GET READY TO BE HIRED, CTAs for candidates and recruiters",
+      "files": ["frontend/src/app/page.tsx"]
+    },
+    {
+      "name": "Candidate Registration",
+      "description": "Registration form for candidates with name, email, password validation. Redirects to onboarding after success.",
+      "files": ["frontend/src/app/auth/register/page.tsx"]
+    },
+    {
+      "name": "Recruiter Registration",
+      "description": "Registration form for recruiters with company name field.",
+      "files": ["frontend/src/app/auth/register/page.tsx"]
+    },
+    {
+      "name": "Login",
+      "description": "Login page with role tabs (Job Seeker / Recruiter), email and password fields, forgot password link.",
+      "files": ["frontend/src/app/auth/login/page.tsx"]
+    },
+    {
+      "name": "Forgot Password",
+      "description": "Two-step forgot password: enter email to get code, then enter code and new password.",
+      "files": ["frontend/src/app/auth/forgot-password/page.tsx"]
+    },
+    {
+      "name": "Candidate Onboarding",
+      "description": "8-step wizard: basic info, work status (laid off/switch/other), employment, skills, resume upload, education, preferences, headline.",
+      "files": ["frontend/src/app/candidate/onboarding/page.tsx"]
+    },
+    {
+      "name": "Candidate Dashboard",
+      "description": "Shows verification status banner, resume upload, AI insights, recommended jobs.",
+      "files": ["frontend/src/app/candidate/dashboard/page.tsx"]
+    },
+    {
+      "name": "Candidate Jobs",
+      "description": "Browse jobs. Apply button shows lock icon if candidate not verified.",
+      "files": ["frontend/src/app/candidate/jobs/page.tsx"]
+    },
+    {
+      "name": "Candidate Schedule",
+      "description": "Time slot picker for scheduling interview after recruiter invite. Shows confirmation on booking.",
+      "files": ["frontend/src/app/candidate/schedule/page.tsx"]
+    },
+    {
+      "name": "Interview Room",
+      "description": "AI voice interview room with camera, push-to-talk mic, transcript panel, phase indicator.",
+      "files": ["frontend/src/app/candidate/room/[interviewId]/page.tsx"]
+    },
+    {
+      "name": "Verification Room",
+      "description": "Reuses interview room for one-time verification interview.",
+      "files": ["frontend/src/app/candidate/verify/[id]/page.tsx"]
+    },
+    {
+      "name": "Candidate Scorecard",
+      "description": "Shows AI assessment results after interview with score rings, dimension bars, feedback.",
+      "files": ["frontend/src/app/candidate/scorecard/[interviewId]/page.tsx"]
+    },
+    {
+      "name": "Recruiter Layout",
+      "description": "White sidebar with blue active states, topbar with search, notification bell, Post Job button.",
+      "files": ["frontend/src/app/recruiter/layout.tsx"]
+    },
+    {
+      "name": "Recruiter Dashboard",
+      "description": "Stats cards, recent applications table, upcoming interviews panel.",
+      "files": ["frontend/src/app/recruiter/page.tsx"]
+    },
+    {
+      "name": "Recruiter Jobs",
+      "description": "List of posted jobs with application counts. Create new job with AI-generated description.",
+      "files": ["frontend/src/app/recruiter/jobs/page.tsx", "frontend/src/app/recruiter/jobs/new/page.tsx"]
+    },
+    {
+      "name": "Recruiter Candidates",
+      "description": "Table of all applicants with verification score, status badges, Invite button.",
+      "files": ["frontend/src/app/recruiter/candidates/page.tsx"]
+    },
+    {
+      "name": "Recruiter Assessments",
+      "description": "List of AI assessments with verdict chips, score, integrity score.",
+      "files": ["frontend/src/app/recruiter/assessments/page.tsx"]
+    },
+    {
+      "name": "Recruiter Analytics",
+      "description": "KPI cards, hiring pipeline funnel, weekly activity chart.",
+      "files": ["frontend/src/app/recruiter/analytics/page.tsx"]
+    },
+    {
+      "name": "Notification Bell",
+      "description": "Bell icon with unread count badge, dropdown with notifications, mark read.",
+      "files": ["frontend/src/components/NotificationBell.tsx"]
+    },
+    {
+      "name": "Auth API",
+      "description": "Register, login, logout, forgot password, confirm password endpoints using Cognito + RDS.",
+      "files": ["backend/app/api/v1/endpoints/auth.py"]
+    },
+    {
+      "name": "Interview Chat API",
+      "description": "Groq Whisper STT + LLaMA AI interviewer + session management endpoints.",
+      "files": ["backend/app/api/v1/endpoints/interview_chat.py"]
+    },
+    {
+      "name": "Verification API",
+      "description": "Start, status, retake, badge endpoints for candidate verification flow.",
+      "files": ["backend/app/api/v1/endpoints/verification.py"]
+    },
+    {
+      "name": "Jobs API",
+      "description": "CRUD for job postings with JD embedding generation.",
+      "files": ["backend/app/api/v1/endpoints/jobs.py"]
+    },
+    {
+      "name": "Applications API",
+      "description": "Apply, list, invite endpoints. Returns verification score per applicant.",
+      "files": ["backend/app/api/v1/endpoints/applications.py"]
+    },
+    {
+      "name": "Notifications API",
+      "description": "List, unread count, mark read endpoints.",
+      "files": ["backend/app/api/v1/endpoints/notifications.py"]
+    }
+  ]
+}
