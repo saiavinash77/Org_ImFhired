@@ -16,6 +16,7 @@ export default function CandidateJobsPage() {
   const [search, setSearch] = useState('')
   const [jobs, setJobs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [isVerified, setIsVerified] = useState<boolean | null>(null)
 
   useEffect(() => {
     const fetchJobs = async () => {
@@ -30,7 +31,21 @@ export default function CandidateJobsPage() {
         setLoading(false)
       }
     }
+    const checkVerification = async () => {
+      const token = localStorage.getItem('imfhired_token')
+      if (!token) return
+      try {
+        const API_URL = getApiUrl()
+        const res = await axios.get(`${API_URL}/api/v1/verification/status`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        setIsVerified(res.data.verified === true)
+      } catch {
+        setIsVerified(false)
+      }
+    }
     fetchJobs()
+    checkVerification()
   }, [])
 
   const generateJobSchema = (job: any) => {
@@ -228,13 +243,22 @@ export default function CandidateJobsPage() {
                     </button>
                   </div>
 
-                  <Link 
-                    href={`/candidate/apply?job_id=${job.id}`}
-                    className="flex-1 flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 text-white font-black uppercase tracking-widest text-[11px] py-3 rounded-xl transition-all shadow-sm active:scale-95 group/btn"
-                  >
-                    Apply Now
-                    <ChevronRight className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />
-                  </Link>
+                  {isVerified === false ? (
+                    <button
+                      onClick={() => toast.error('Complete your verification interview first to apply for jobs.')}
+                      className="flex-1 flex items-center justify-center gap-2 bg-gray-200 text-gray-500 font-black uppercase tracking-widest text-[11px] py-3 rounded-xl cursor-not-allowed"
+                    >
+                      🔒 Verify First
+                    </button>
+                  ) : (
+                    <Link 
+                      href={`/candidate/apply?job_id=${job.id}`}
+                      className="flex-1 flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 text-white font-black uppercase tracking-widest text-[11px] py-3 rounded-xl transition-all shadow-sm active:scale-95 group/btn"
+                    >
+                      Apply Now
+                      <ChevronRight className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />
+                    </Link>
+                  )}
                 </div>
               </div>
             ))}
