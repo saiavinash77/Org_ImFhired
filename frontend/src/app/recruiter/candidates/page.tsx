@@ -45,6 +45,9 @@ function CandidatesContent() {
            const avatar = name.split(' ').slice(0, 2).map((n: string) => n[0]).join('').toUpperCase() || 'U'
            const rawScore = d.ai_score ?? 0
            let score = rawScore < 1 && rawScore > 0 ? Math.round(rawScore * 100 * 10) / 10 : Math.round(rawScore * 10) / 10
+           // Verification score is the primary signal — this is what recruiters care about
+           const verScore = d.verification_score != null ? Math.round(d.verification_score) : null
+           const isVerified = d.is_verified || false
            return {
              id: d.id,
              name: name,
@@ -52,6 +55,8 @@ function CandidatesContent() {
              role: d.jobs?.title || 'Unknown Role',
              score: score,
              matchScore: score,
+             verificationScore: verScore,
+             isVerified: isVerified,
              status: d.status || 'applied',
              interviewed: ['interviewing', 'interviewed', 'offered', 'hired'].includes(d.status),
              avatar: avatar,
@@ -208,8 +213,7 @@ function CandidatesContent() {
             <tr>
               <th className="text-left">Candidate</th>
               <th className="text-left hidden md:table-cell">Position</th>
-              <th className="text-center">Match</th>
-              <th className="text-center">Score</th>
+              <th className="text-center">Verified Score</th>
               <th className="text-left hidden sm:table-cell">Status</th>
               <th className="text-left hidden lg:table-cell">Applied</th>
               <th className="text-right">Actions</th>
@@ -235,13 +239,17 @@ function CandidatesContent() {
                     <span className="text-sm text-surface-700 font-medium">{c.role}</span>
                   </td>
                   <td className="text-center">
-                    <span className={`text-sm font-bold ${scoreColor(c.matchScore)}`}>{c.matchScore}%</span>
-                  </td>
-                  <td className="text-center">
-                    {c.score > 0 ? (
-                      <span className={`text-sm font-bold ${scoreColor(c.score)}`}>{c.score}</span>
+                    {c.verificationScore != null ? (
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className={`text-sm font-bold ${scoreColor(c.verificationScore)}`}>
+                          {c.verificationScore}/100
+                        </span>
+                        {c.isVerified && (
+                          <span className="text-[9px] font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full">✓ Verified</span>
+                        )}
+                      </div>
                     ) : (
-                      <span className="text-xs text-surface-300 italic">Pending</span>
+                      <span className="text-xs text-surface-300 italic">Not verified</span>
                     )}
                   </td>
                   <td className="hidden sm:table-cell">
