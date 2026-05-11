@@ -213,15 +213,50 @@ async def start_interview_session(
             or vi_row["email"].split("@")[0].title()
         )
         resume_data.setdefault("name", candidate_name)
+
+        # Build a rich job_data from the candidate's own resume
+        # so the AI asks questions grounded in their actual experience
+        skills = resume_data.get("skills", [])
+        experience = resume_data.get("experience", [])
+        exp_years = resume_data.get("total_years_experience", 0)
+        recent_roles = [f"{e.get('title','')} at {e.get('company','')}" for e in experience[:3] if isinstance(e, dict)]
+        summary = resume_data.get("summary", "")
+
+        # Build a JD-style description from their resume
+        skills_text = ", ".join(skills[:12]) if skills else "various technical skills"
+        roles_text = "; ".join(recent_roles) if recent_roles else "previous roles"
+        jd_description = (
+            f"This is a professional skills verification interview for {candidate_name}. "
+            f"The candidate has {exp_years} years of experience. "
+            f"Recent roles: {roles_text}. "
+            f"Core skills: {skills_text}. "
+            f"{'Summary: ' + summary if summary else ''} "
+            f"Your job is to assess their depth of knowledge in their stated skills, "
+            f"communication clarity, and professional experience. "
+            f"Ask questions ONLY about skills and experiences that appear in their resume. "
+            f"Do NOT ask about skills not mentioned in their profile."
+        )
+
         job_data = {
-            "title": "Verification Interview",
-            "description": "General skills verification interview.",
-            "requirements": resume_data.get("skills", [])[:8],
-            "required_skills": resume_data.get("skills", [])[:8],
+            "title": f"Skills Verification — {candidate_name}",
+            "description": jd_description,
+            "requirements": skills[:10],
+            "required_skills": skills[:10],
             "salary_min": 0,
             "salary_max": 0,
         }
         is_verification = True
+
+        # Better opening instruction for verification
+        opening_instruction = (
+            f"The candidate {candidate_name} has joined for their skills verification interview. "
+            f"You have their resume on file. They have {exp_years} years of experience. "
+            f"Their key skills include: {skills_text}. "
+            f"Greet them warmly by name, mention you've reviewed their profile, "
+            f"and ask them to briefly walk you through their most recent role and what they worked on. "
+            f"Keep it conversational and under 3 sentences. Do NOT mention 'verification test' or 'verification interview' — "
+            f"just say you're here to learn more about their experience and skills."
+        )
     else:
         # Regular job interview
         async with pool.acquire() as conn:
@@ -286,12 +321,15 @@ async def start_interview_session(
 
     # Generate opening message
     system_prompt = state_machine.get_system_prompt()
-    opening_instruction = (
-        f"The candidate ({candidate_name}) just joined. "
-        "Greet them warmly by name in English, confirm you have their resume on file, "
-        "and ask one short opening question about what drew them to this role. "
-        "Keep it under 3 sentences. Speak naturally."
-    )
+
+    # Use verification-specific opening if set, otherwise generic
+    if not is_verification:
+        opening_instruction = (
+            f"The candidate ({candidate_name}) just joined for the {job_data['title']} interview. "
+            "Greet them warmly by name in English, confirm you have their resume on file, "
+            "and ask one short opening question about what drew them to this role. "
+            "Keep it under 3 sentences. Speak naturally."
+        )
 
     try:
         response = await groq.chat.completions.create(
@@ -358,20 +396,23 @@ async def end_interview(
     is_verification = session.get("is_verification", False)
     pool = await get_pg_pool()
 
-    # Save transcript to DB
+    # Save transcript to DB — store as JSON string for asyncpg JSONB
     table = "verification_interviews" if is_verification else "interviews"
     db_status = "cancelled" if data.termination_reason == "tab_guard" else "completed"
 
     try:
         async with pool.acquire() as conn:
             await conn.execute(
-                f"UPDATE {table} SET status = $1, transcript = $2 WHERE id = $3",
-                db_status, transcript, data.interview_id,
+                f"UPDATE {table} SET status = $1, transcript = $2::jsonb WHERE id = $3",
+                db_status,
+                json.dumps(transcript),
+                data.interview_id,
             )
+        print(f"[Interview] Saved {len(transcript)} transcript turns to {table}")
     except Exception as e:
         print(f"[Interview] DB save error: {e}")
 
-    # Trigger assessment
+    # Trigger assessment generation
     try:
         from app.services.assessment_generator import generate_assessment
         import asyncio
@@ -384,6 +425,7 @@ async def end_interview(
                 is_verification=is_verification,
             )
         )
+        print(f"[Interview] Assessment task queued for {data.interview_id}")
     except Exception as e:
         print(f"[Interview] Assessment trigger error: {e}")
 
