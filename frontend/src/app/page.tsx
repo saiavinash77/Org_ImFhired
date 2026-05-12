@@ -110,12 +110,12 @@ export default function HomePage() {
             <div className="w-5 h-5 bg-black rounded-md flex items-center justify-center">
               <span className="text-white font-black text-[8px]">IF</span>
             </div>
-            <span className="text-xs font-bold text-gray-600 uppercase tracking-widest">The Next Door for Laid Off People</span>
+            <span className="text-xs font-bold text-gray-600 uppercase tracking-widest">The next door for laid off talent and job-switchers</span>
           </div>
 
           {/* Main headline */}
           <h1 className="font-black text-black leading-none mb-4" style={{
-            fontSize: 'clamp(3.5rem, 10vw, 8rem)',
+            fontSize: 'clamp(2rem, 5.5vw, 4.5rem)',
             letterSpacing: '-0.04em',
             lineHeight: '0.95',
           }}>
@@ -138,9 +138,15 @@ export default function HomePage() {
             </span>
           </h1>
 
-          <p className="text-lg text-gray-500 font-medium mt-10 mb-10 max-w-xl mx-auto leading-relaxed">
+          <p className="text-lg text-gray-500 font-medium mt-10 mb-4 max-w-xl mx-auto leading-relaxed">
             Stop mass-applying like a fresher. Get verified once, stand out everywhere.
             Built for experienced professionals who deserve better.
+          </p>
+          <p className="font-black text-black uppercase tracking-widest mb-10" style={{
+            fontSize: 'clamp(0.75rem, 1.5vw, 1rem)',
+            letterSpacing: '0.12em',
+          }}>
+            The next door for laid off talent and job-switchers
           </p>
 
           {/* CTAs */}
