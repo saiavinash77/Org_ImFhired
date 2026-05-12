@@ -177,12 +177,12 @@ export default function HomePage() {
       </section>
 
       {/* ─── STATS ─── */}
-      <section className="py-16 border-y border-gray-100 bg-gray-50">
+      <section className="py-16 border-y border-blue-50" style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.04) 0%, rgba(147,197,253,0.06) 100%)' }}>
         <div className="max-w-4xl mx-auto px-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
             {stats.map(s => (
               <div key={s.label} className="text-center">
-                <div className="text-4xl font-black text-black mb-1">{s.value}</div>
+                <div className="text-4xl font-black text-blue-700 mb-1">{s.value}</div>
                 <div className="text-xs text-gray-500 font-semibold uppercase tracking-widest">{s.label}</div>
               </div>
             ))}
@@ -207,8 +207,16 @@ export default function HomePage() {
               { label: 'The Gap', items: ['No trust signal', 'No differentiation', 'No verification layer', 'Just a PDF in a pile'] },
               { label: 'With ImFhired', items: ['Verified badge on profile', 'Recruiters come to you', 'Pre-vetted = less risk', 'Apply once, seen everywhere'] },
             ].map((col, i) => (
-              <div key={col.label} className={`p-6 rounded-2xl border ${i === 2 ? 'border-white/20 bg-white/5' : 'border-white/10'}`}>
-                <div className={`text-xs font-bold uppercase tracking-widest mb-4 ${i === 2 ? 'text-white' : 'text-gray-500'}`}>{col.label}</div>
+              <div key={col.label} className={`p-6 rounded-2xl border ${
+                i === 2
+                  ? 'border-blue-400/30 text-white'
+                  : 'border-white/10'
+              }`} style={i === 2 ? {
+                background: 'linear-gradient(135deg, rgba(37,99,235,0.25) 0%, rgba(59,130,246,0.15) 100%)',
+                backdropFilter: 'blur(12px)',
+                boxShadow: '0 0 32px rgba(37,99,235,0.2), inset 0 1px 0 rgba(255,255,255,0.1)',
+              } : {}}>
+                <div className={`text-xs font-bold uppercase tracking-widest mb-4 ${i === 2 ? 'text-blue-300' : 'text-gray-500'}`}>{col.label}</div>
                 <ul className="space-y-2">
                   {col.items.map(item => (
                     <li key={item} className={`text-sm flex items-start gap-2 ${i === 2 ? 'text-white' : 'text-gray-500'}`}>
@@ -239,7 +247,10 @@ export default function HomePage() {
                   <div className="hidden md:block absolute top-6 left-[calc(100%-8px)] w-full h-px border-t-2 border-dashed border-gray-200 z-0" />
                 )}
                 <div className="relative z-10">
-                  <div className="w-12 h-12 bg-black text-white rounded-2xl flex items-center justify-center font-black text-sm mb-4">
+                  <div className="w-12 h-12 text-white rounded-2xl flex items-center justify-center font-black text-sm mb-4" style={{
+                    background: 'linear-gradient(135deg, #2563eb, #3b82f6)',
+                    boxShadow: '0 4px 16px rgba(37,99,235,0.3)',
+                  }}>
                     {step.step}
                   </div>
                   <h3 className="font-bold text-black mb-2">{step.title}</h3>
@@ -262,9 +273,12 @@ export default function HomePage() {
           </div>
           <div className="grid md:grid-cols-3 gap-5">
             {features.map(f => (
-              <div key={f.title} className="bg-white p-6 rounded-2xl border border-gray-100 hover:border-gray-300 hover:shadow-md transition-all">
-                <div className="w-10 h-10 bg-black rounded-xl flex items-center justify-center mb-4">
-                  <f.icon className="w-5 h-5 text-white" />
+              <div key={f.title} className="bg-white p-6 rounded-2xl border border-blue-50 hover:border-blue-200 hover:shadow-md transition-all" style={{ boxShadow: '0 1px 4px rgba(37,99,235,0.06)' }}>
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4" style={{
+                  background: 'linear-gradient(135deg, rgba(37,99,235,0.12), rgba(59,130,246,0.08))',
+                  border: '1px solid rgba(37,99,235,0.15)',
+                }}>
+                  <f.icon className="w-5 h-5 text-blue-600" />
                 </div>
                 <h3 className="font-bold text-black mb-2">{f.title}</h3>
                 <p className="text-sm text-gray-500 leading-relaxed">{f.desc}</p>
@@ -290,7 +304,7 @@ export default function HomePage() {
               <ul className="space-y-3 mb-8">
                 {['AI-scored candidates ranked by fit', 'Full interview scorecards on every profile', 'Invite who you want — no auto-spam', 'Send offers in one click'].map(item => (
                   <li key={item} className="flex items-center gap-3 text-sm font-medium text-gray-700">
-                    <div className="w-5 h-5 bg-black rounded-full flex items-center justify-center flex-shrink-0">
+                    <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg, #2563eb, #3b82f6)' }}>
                       <CheckCircle className="w-3 h-3 text-white" />
                     </div>
                     {item}
@@ -298,7 +312,7 @@ export default function HomePage() {
                 ))}
               </ul>
               <Link href="/auth/register?role=recruiter"
-                className="inline-flex items-center gap-2 text-white font-bold px-6 py-3 rounded-xl bg-black hover:bg-gray-800 transition-colors">
+                className="inline-flex items-center gap-2 text-white font-bold px-6 py-3 rounded-xl transition-colors" style={{ background: 'linear-gradient(135deg, #2563eb, #3b82f6)', boxShadow: '0 4px 16px rgba(37,99,235,0.3)' }}>
                 Start Hiring <ArrowRight className="w-4 h-4" />
               </Link>
             </div>
@@ -309,8 +323,10 @@ export default function HomePage() {
                 { num: '94%', label: 'Interview show rate' },
                 { num: '8+', label: 'Evaluation dimensions' },
               ].map(v => (
-                <div key={v.label} className="bg-gray-50 border border-gray-100 rounded-2xl p-5 text-center">
-                  <div className="text-3xl font-black text-black mb-1">{v.num}</div>
+                <div key={v.label} className="rounded-2xl p-5 text-center border border-blue-100" style={{
+                  background: 'linear-gradient(135deg, rgba(37,99,235,0.06) 0%, rgba(147,197,253,0.08) 100%)',
+                }}>
+                  <div className="text-3xl font-black text-blue-700 mb-1">{v.num}</div>
                   <div className="text-xs text-gray-500 font-semibold">{v.label}</div>
                 </div>
               ))}
