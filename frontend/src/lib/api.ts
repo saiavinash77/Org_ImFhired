@@ -16,6 +16,13 @@ export const getApiUrl = () => {
 
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname
+    
+    // If accessing via ngrok, use HTTPS ngrok URL (don't append :8002)
+    if (hostname.includes('.ngrok.io')) {
+      return `https://${hostname}`
+    }
+    
+    // For localhost/127.0.0.1, append port 8002
     return `http://${hostname}:8002`
   }
 
