@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   LayoutDashboard, Briefcase, Users, BarChart3,
   Settings, LogOut, Search, Menu, X,
-  TrendingUp, Plus, Globe
+  TrendingUp, Plus, Globe, BookOpen, Zap
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import AuthGuard from '@/components/AuthGuard'
@@ -63,7 +63,7 @@ function RecruiterLayoutInner({ children }: { children: React.ReactNode }) {
             <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center">
               <span className="text-white font-black text-[9px]">IF</span>
             </div>
-            <span className="font-black text-gray-900 text-sm">ImFhired</span>
+            <span className="font-black text-gray-900 text-sm">FiredIn</span>
           </Link>
         </div>
 

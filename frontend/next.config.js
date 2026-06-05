@@ -16,7 +16,7 @@ const nextConfig = {
       },
       {
         protocol: 'https',
-        hostname: 'hireai-resumes-2024.s3.ap-south-1.amazonaws.com',
+        hostname: 'firedin-resumes-2024.s3.ap-south-1.amazonaws.com',
       },
       {
         protocol: 'https',
@@ -29,6 +29,18 @@ const nextConfig = {
   },
   eslint: {
     ignoreDuringBuilds: false,
+  },
+  async rewrites() {
+    return [
+      {
+        source: '/dashboard/candidate',
+        destination: '/candidate/dashboard',
+      },
+      {
+        source: '/dashboard/recruiter',
+        destination: '/recruiter',
+      },
+    ]
   },
 }
 

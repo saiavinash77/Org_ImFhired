@@ -52,19 +52,19 @@ async def run_test():
         await elem.wait_for(state="visible", timeout=10000)
         await elem.click()
         
-        # -> Fill the email field with testrecruiter@imfhired.com (input index 654).
+        # -> Fill the email field with testrecruiter@firedin.com (input index 654).
         # email input placeholder="you@example.com"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/div/input").nth(0)
         await elem.wait_for(state="visible", timeout=10000)
-        await elem.fill("testrecruiter@imfhired.com")
+        await elem.fill("testrecruiter@firedin.com")
         
-        # -> Fill the email field with testrecruiter@imfhired.com (input index 654).
+        # -> Fill the email field with testrecruiter@firedin.com (input index 654).
         # password input placeholder="••••••••"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/div[2]/div[2]/input").nth(0)
         await elem.wait_for(state="visible", timeout=10000)
         await elem.fill("Test1234!")
         
-        # -> Fill the email field with testrecruiter@imfhired.com (input index 654).
+        # -> Fill the email field with testrecruiter@firedin.com (input index 654).
         # button "Sign In"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/button").nth(0)
         await elem.wait_for(state="visible", timeout=10000)
@@ -76,13 +76,13 @@ async def run_test():
         await elem.wait_for(state="visible", timeout=10000)
         await elem.click()
         
-        # -> Fill the recruiter email field (index 857) with testrecruiter@imfhired.com, fill the password (index 863) with Test1234!, then click Sign In (index 868).
+        # -> Fill the recruiter email field (index 857) with testrecruiter@firedin.com, fill the password (index 863) with Test1234!, then click Sign In (index 868).
         # email input placeholder="you@example.com"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/div/input").nth(0)
         await elem.wait_for(state="visible", timeout=10000)
-        await elem.fill("testrecruiter@imfhired.com")
+        await elem.fill("testrecruiter@firedin.com")
         
-        # -> Fill the recruiter email field (index 857) with testrecruiter@imfhired.com, fill the password (index 863) with Test1234!, then click Sign In (index 868).
+        # -> Fill the recruiter email field (index 857) with testrecruiter@firedin.com, fill the password (index 863) with Test1234!, then click Sign In (index 868).
         # button "Sign In"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/button").nth(0)
         await elem.wait_for(state="visible", timeout=10000)
@@ -122,7 +122,7 @@ async def run_test():
         # email input placeholder="you@example.com"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/div/input").nth(0)
         await elem.wait_for(state="visible", timeout=10000)
-        await elem.fill("testrecruiter@imfhired.com")
+        await elem.fill("testrecruiter@firedin.com")
         
         # -> Fill the recruiter email (index 988) and password (index 996), then click Sign In (index 1001). After click, wait for the page to settle and verify redirect to /recruiter and that 'Jobs' is visible.
         # password input placeholder="••••••••"

@@ -5,49 +5,93 @@ All styles are fully inlined as single-line strings for maximum email client com
 """
 from datetime import datetime
 import html
+import boto3
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from botocore.exceptions import ClientError
 from app.core.config import settings
 
 
+async def _send_ses_email(to_email: str, subject: str, html_body: str) -> bool:
+    """Send an email via AWS SES using boto3."""
+    if not settings.AWS_ACCESS_KEY_ID or not settings.AWS_SECRET_ACCESS_KEY:
+        return False
+
+    try:
+        print(f"📧 Sending SES email to {to_email}...")
+        client = boto3.client(
+            'ses',
+            region_name=settings.AWS_REGION,
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY
+        )
+        client.send_email(
+            Destination={'ToAddresses': [to_email]},
+            Message={
+                'Body': {'Html': {'Charset': 'UTF-8', 'Data': html_body}},
+                'Subject': {'Charset': 'UTF-8', 'Data': subject},
+            },
+            Source=f"FiredIn <{settings.AWS_SES_FROM_EMAIL}>",
+        )
+        return True
+    except Exception as e:
+        print(f"❌ SES Error: {e}")
+        return False
+
+
 async def _send_resend_email(to_email: str, subject: str, html_body: str) -> bool:
-    """Send an email via Resend SMTP with a 30-second timeout."""
+    """Send an email via Resend HTTP API (more reliable than SMTP)."""
     if not settings.RESEND_API_KEY:
         print("❌ RESEND_API_KEY not set.")
         return False
+    
+    # Use verified domain if possible, fallback to onboarding@resend.dev
+    from_email = settings.AWS_SES_FROM_EMAIL
+    if "firedin.in" in from_email and not settings.RESEND_API_KEY.startswith("re_"):
+        # If using default dev key, must use onboarding@resend.dev
+        from_email = "onboarding@resend.dev"
+    elif "resend.dev" not in from_email and "firedin.in" not in from_email:
+         from_email = "onboarding@resend.dev"
+
     try:
-        print(f"📧 Sending email to {to_email} via SMTP...")
-
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"] = "ImFhired <onboarding@resend.dev>"
-        msg["To"] = to_email
-        msg["Reply-To"] = "noreply@resend.dev"
-
-        part = MIMEText(html_body, "html", "utf-8")
-        msg.attach(part)
-
-        # Connect to Resend SMTP with explicit timeout to avoid indefinite hangs
-        with smtplib.SMTP_SSL("smtp.resend.com", 465, timeout=30) as server:
-            server.login("resend", settings.RESEND_API_KEY)
-            server.sendmail("onboarding@resend.dev", to_email, msg.as_string())
-
-        print(f"✅ Email sent successfully to {to_email}.")
-        return True
-
-    except smtplib.SMTPAuthenticationError as e:
-        print(f"❌ SMTP Auth Error — check RESEND_API_KEY: {e}")
-        return False
-    except smtplib.SMTPRecipientsRefused as e:
-        print(f"❌ Recipient refused {to_email}: {e}")
-        return False
-    except TimeoutError as e:
-        print(f"❌ SMTP connection timed out for {to_email}: {e}")
-        return False
+        import httpx
+        print(f"📧 Sending Resend API email to {to_email}...")
+        async with httpx.AsyncClient() as client:
+            res = await client.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {settings.RESEND_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "from": f"FiredIn <{from_email}>",
+                    "to": [to_email],
+                    "subject": subject,
+                    "html": html_body,
+                },
+            )
+            if res.status_code in (200, 201):
+                print(f"✅ Resend Email sent successfully to {to_email}.")
+                return True
+            else:
+                print(f"❌ Resend API error {res.status_code}: {res.text}")
+                return False
     except Exception as e:
-        print(f"❌ SMTP Resend error for {to_email}: {type(e).__name__}: {e}")
+        print(f"❌ Resend API exception: {e}")
         return False
+
+
+async def _send_email(to_email: str, subject: str, html_body: str) -> bool:
+    """Entry point for all emails. Prioritizes Resend for dev-ease, falls back to SES."""
+    # If we have a Resend key, use it by default as it works without domain verification
+    if settings.RESEND_API_KEY:
+        success = await _send_resend_email(to_email, subject, html_body)
+        if success:
+            return True
+    
+    # Fallback to SES if Resend fails or isn't configured
+    return await _send_ses_email(to_email, subject, html_body)
 
 
 def _get_display_name(full_name: str) -> str:
@@ -86,7 +130,7 @@ async def send_interview_invite(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>You are Shortlisted - ImFhired</title>
+  <title>You are Shortlisted - FiredIn</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f0f2f5;font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f2f5;padding:40px 16px;">
@@ -196,8 +240,8 @@ async def send_interview_invite(
           <!-- FOOTER -->
           <tr>
             <td style="background:#f8fafc;padding:24px 40px;text-align:center;border-top:1px solid #e2e8f0;">
-              <p style="color:#64748b;font-size:13px;margin:0 0 4px;font-weight:600;">Powered by ImFhired</p>
-              <p style="color:#94a3b8;font-size:12px;margin:0;">The Next Door for Experienced Talent &bull; <a href="https://imfhired.in" style="color:#6366f1;text-decoration:none;">ashishai.in</a></p>
+              <p style="color:#64748b;font-size:13px;margin:0 0 4px;font-weight:600;">Powered by FiredIn</p>
+              <p style="color:#94a3b8;font-size:12px;margin:0;">The Next Door for Experienced Talent &bull; <a href="https://firedin.in" style="color:#6366f1;text-decoration:none;">ashishai.in</a></p>
             </td>
           </tr>
 
@@ -208,8 +252,8 @@ async def send_interview_invite(
 </body>
 </html>"""
 
-    subject = f"You're Shortlisted! Schedule Your AI Interview - ImFhired ({match_score}% Match)"
-    return await _send_resend_email(to_email, subject, html_body)
+    subject = f"You're Shortlisted! Schedule Your AI Interview - FiredIn ({match_score}% Match)"
+    return await _send_email(to_email, subject, html_body)
 
 
 # ─── 2. Calendar / Interview Confirmation ────────────────────────────────────
@@ -232,7 +276,7 @@ async def send_calendar_invite(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Interview Confirmed - ImFhired</title>
+  <title>Interview Confirmed - FiredIn</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f0f2f5;font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f2f5;padding:40px 16px;">
@@ -315,8 +359,8 @@ async def send_calendar_invite(
           <!-- FOOTER -->
           <tr>
             <td style="background:#f8fafc;padding:24px 40px;text-align:center;border-top:1px solid #e2e8f0;">
-              <p style="color:#64748b;font-size:13px;margin:0 0 4px;font-weight:600;">Powered by ImFhired</p>
-              <p style="color:#94a3b8;font-size:12px;margin:0;">The Next Door for Experienced Talent &bull; <a href="https://imfhired.in" style="color:#6366f1;text-decoration:none;">ashishai.in</a></p>
+              <p style="color:#64748b;font-size:13px;margin:0 0 4px;font-weight:600;">Powered by FiredIn</p>
+              <p style="color:#94a3b8;font-size:12px;margin:0;">The Next Door for Experienced Talent &bull; <a href="https://firedin.in" style="color:#6366f1;text-decoration:none;">ashishai.in</a></p>
             </td>
           </tr>
 
@@ -327,8 +371,8 @@ async def send_calendar_invite(
 </body>
 </html>"""
 
-    subject = f"Interview Confirmed: {job_title} on {formatted_date} at {formatted_time} - ImFhired"
-    return await _send_resend_email(to_email, subject, html_body)
+    subject = f"Interview Confirmed: {job_title} on {formatted_date} at {formatted_time} - FiredIn"
+    return await _send_email(to_email, subject, html_body)
 
 
 # ─── 3. Assessment Ready (Recruiter) ─────────────────────────────────────────
@@ -366,7 +410,7 @@ async def send_assessment_ready(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Assessment Complete - ImFhired</title>
+  <title>Assessment Complete - FiredIn</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f0f2f5;font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f2f5;padding:40px 16px;">
@@ -436,8 +480,8 @@ async def send_assessment_ready(
           <!-- FOOTER -->
           <tr>
             <td style="background:#f8fafc;padding:24px 40px;text-align:center;border-top:1px solid #e2e8f0;">
-              <p style="color:#64748b;font-size:13px;margin:0 0 4px;font-weight:600;">Powered by ImFhired</p>
-              <p style="color:#94a3b8;font-size:12px;margin:0;">The Next Door for Experienced Talent &bull; <a href="https://imfhired.in" style="color:#6366f1;text-decoration:none;">ashishai.in</a></p>
+              <p style="color:#64748b;font-size:13px;margin:0 0 4px;font-weight:600;">Powered by FiredIn</p>
+              <p style="color:#94a3b8;font-size:12px;margin:0;">The Next Door for Experienced Talent &bull; <a href="https://firedin.in" style="color:#6366f1;text-decoration:none;">ashishai.in</a></p>
             </td>
           </tr>
 
@@ -448,8 +492,8 @@ async def send_assessment_ready(
 </body>
 </html>"""
 
-    subject = f"Assessment Ready: {candidate_name} scored {overall_score}/100 ({label}) - ImFhired"
-    return await _send_resend_email(to_email, subject, html_body)
+    subject = f"Assessment Ready: {candidate_name} scored {overall_score}/100 ({label}) - FiredIn"
+    return await _send_email(to_email, subject, html_body)
 
 
 # ─── 4. Candidate Scorecard Ready ───────────────────────────────────────────
@@ -467,7 +511,7 @@ async def send_candidate_scorecard_email(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Your Interview Scorecard is Ready - ImFhired</title>
+  <title>Your Interview Scorecard is Ready - FiredIn</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f0f2f5;font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f2f5;padding:40px 16px;">
@@ -485,7 +529,7 @@ async def send_candidate_scorecard_email(
           <tr>
             <td style="padding:36px 40px 32px;">
               <p style="color:#334155;font-size:15px;line-height:1.75;margin:0 0 28px;">
-                Hi <strong>{candidate_name}</strong>, thank you for completing your ImFhired interview for the <strong>{job_title}</strong> role. Your assessment report has been generated.
+                Hi <strong>{candidate_name}</strong>, thank you for completing your FiredIn interview for the <strong>{job_title}</strong> role. Your assessment report has been generated.
               </p>
               
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
@@ -514,8 +558,8 @@ async def send_candidate_scorecard_email(
           <!-- FOOTER -->
           <tr>
             <td style="background:#f8fafc;padding:24px 40px;text-align:center;border-top:1px solid #e2e8f0;">
-              <p style="color:#64748b;font-size:13px;margin:0 0 4px;font-weight:600;">Powered by ImFhired</p>
-              <p style="color:#94a3b8;font-size:12px;margin:0;">The Next Door for Experienced Talent &bull; <a href="https://imfhired.in" style="color:#6366f1;text-decoration:none;">ashishai.in</a></p>
+              <p style="color:#64748b;font-size:13px;margin:0 0 4px;font-weight:600;">Powered by FiredIn</p>
+              <p style="color:#94a3b8;font-size:12px;margin:0;">The Next Door for Experienced Talent &bull; <a href="https://firedin.in" style="color:#6366f1;text-decoration:none;">ashishai.in</a></p>
             </td>
           </tr>
         </table>
@@ -525,8 +569,8 @@ async def send_candidate_scorecard_email(
 </body>
 </html>"""
     
-    subject = f"Your Interview Results: {job_title} - ImFhired"
-    return await _send_resend_email(to_email, subject, html_body)
+    subject = f"Your Interview Results: {job_title} - FiredIn"
+    return await _send_email(to_email, subject, html_body)
 
 
 
@@ -541,11 +585,11 @@ async def send_welcome_email(
     is_candidate = role == "candidate"
 
     if is_candidate:
-        headline = f"Welcome to ImFhired, {first_name}!"
+        headline = f"Welcome to FiredIn, {first_name}!"
         subline = "The next door for experienced talent"
         body = (
             f"Hi <strong>{first_name}</strong>,<br><br>"
-            "You've just joined ImFhired — the platform built for experienced professionals "
+            "You've just joined FiredIn — the platform built for experienced professionals "
             "who deserve better than mass-applying on LinkedIn.<br><br>"
             "Here's what to do next:<br>"
             "1. Complete your profile (takes 5 minutes)<br>"
@@ -557,11 +601,11 @@ async def send_welcome_email(
         cta_link = f"{settings.FRONTEND_URL}/candidate/onboarding"
         header_color = "linear-gradient(135deg,#2563eb 0%,#3b82f6 100%)"
     else:
-        headline = f"Welcome to ImFhired, {first_name}!"
+        headline = f"Welcome to FiredIn, {first_name}!"
         subline = "Start hiring verified professionals"
         body = (
             f"Hi <strong>{first_name}</strong>,<br><br>"
-            "Welcome to ImFhired — where every candidate has already been verified through an AI interview.<br><br>"
+            "Welcome to FiredIn — where every candidate has already been verified through an AI interview.<br><br>"
             "Here's what to do next:<br>"
             "1. Post your first job<br>"
             "2. Browse verified candidates with their scores<br>"
@@ -598,7 +642,7 @@ async def send_welcome_email(
         </tr>
         <tr>
           <td style="background:#f8fafc;padding:24px 40px;text-align:center;border-top:1px solid #e2e8f0;">
-            <p style="color:#64748b;font-size:13px;margin:0;">Powered by <strong>ImFhired</strong> &bull; The Next Door for Experienced Talent</p>
+            <p style="color:#64748b;font-size:13px;margin:0;">Powered by <strong>FiredIn</strong> &bull; The Next Door for Experienced Talent</p>
           </td>
         </tr>
       </table>
@@ -607,5 +651,61 @@ async def send_welcome_email(
 </body>
 </html>"""
 
-    subject = f"Welcome to ImFhired, {first_name}! 🎉"
-    return await _send_resend_email(to_email, subject, html_body)
+    subject = f"Welcome to FiredIn, {first_name}! 🎉"
+    return await _send_email(to_email, subject, html_body)
+
+
+# ─── 6. Email Verification ────────────────────────────────────────────────────
+async def send_verification_email(
+    to_email: str,
+    full_name: str,
+    verification_token: str,
+) -> bool:
+    """Send an email verification code/link to a new user."""
+    first_name = _get_display_name(full_name)
+    verify_link = f"{settings.FRONTEND_URL}/auth/verify?token={verification_token}"
+
+    html_body = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f0f2f5;font-family:'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f2f5;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+        <tr>
+          <td style="background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);padding:40px;text-align:center;">
+            <div style="font-size:36px;margin-bottom:12px;">🛡️</div>
+            <h1 style="color:#fff;margin:0 0 8px;font-size:24px;font-weight:800;">Verify Your Email</h1>
+            <p style="color:rgba(255,255,255,0.85);margin:0;font-size:14px;">Protect your FiredIn account</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:36px 40px 32px;">
+            <p style="color:#334155;font-size:15px;line-height:1.8;margin:0 0 28px;">
+              Hi <strong>{first_name}</strong>,<br><br>
+              Welcome to FiredIn! Before we get started, we need to verify your email address to ensure your account is secure.
+            </p>
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+              <tr><td align="center">
+                <a href="{verify_link}" style="display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:16px 48px;border-radius:12px;font-weight:700;font-size:16px;">Verify Email Address</a>
+              </td></tr>
+            </table>
+            <p style="color:#64748b;font-size:12px;text-align:center;">
+              If the button doesn't work, copy and paste this link into your browser:<br>
+              <a href="{verify_link}" style="color:#4f46e5;">{verify_link}</a>
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background:#f8fafc;padding:24px 40px;text-align:center;border-top:1px solid #e2e8f0;">
+            <p style="color:#64748b;font-size:13px;margin:0;">This link will expire in 24 hours.</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+
+    subject = "Verify your email for FiredIn"
+    return await _send_email(to_email, subject, html_body)

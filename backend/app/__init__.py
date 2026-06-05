@@ -1,1 +1,1 @@
-"""ImFhired FastAPI application package."""
+"""FiredIn FastAPI application package."""

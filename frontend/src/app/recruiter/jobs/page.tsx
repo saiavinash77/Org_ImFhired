@@ -26,7 +26,7 @@ export default function JobsPage() {
   useEffect(() => {
     const fetchJobs = async () => {
       try {
-        const token = localStorage.getItem('imfhired_token')
+        const token = localStorage.getItem('firedin_token')
         const API_URL = getApiUrl();
         const response = await fetch(`${API_URL}/api/v1/jobs/?is_active=true`, {
           headers: token ? { 'Authorization': `Bearer ${token}` } : {}
@@ -69,7 +69,7 @@ export default function JobsPage() {
   })
 
   const deleteJob = async (id: string) => {
-    const token = localStorage.getItem('imfhired_token')
+    const token = localStorage.getItem('firedin_token')
     if (!token) return toast.error('Auth required')
 
     try {
@@ -92,7 +92,7 @@ export default function JobsPage() {
 
   const handleShare = (job: any, platform: 'linkedin' | 'whatsapp' | 'email') => {
     const jobUrl = `${window.location.origin}/candidate/jobs?id=${job.id}`
-    const text = `🚀 We're hiring: ${job.title}\n📍 ${job.location} | ${job.type}\n💼 ${job.salary}\n\nApply via ImFhired — AI-powered interviews, instant results.`
+    const text = `🚀 We're hiring: ${job.title}\n📍 ${job.location} | ${job.type}\n💼 ${job.salary}\n\nApply via FiredIn — AI-powered interviews, instant results.`
 
     let url = ''
     if (platform === 'linkedin') {
@@ -111,7 +111,7 @@ export default function JobsPage() {
     } else if (platform === 'whatsapp') {
       url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text + '\n\n👉 Apply here: ' + jobUrl)}`
     } else if (platform === 'email') {
-      const subject = `We're Hiring: ${job.title} — ImFhired`
+      const subject = `We're Hiring: ${job.title} — FiredIn`
       const body = `${text}\n\nApply here: ${jobUrl}`
       // Open Gmail directly in a new browser tab with pre-filled fields
       url = `https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
@@ -212,7 +212,7 @@ export default function JobsPage() {
               {/* Center: Recruitment Funnel */}
               <div className="flex gap-8 lg:px-8 lg:border-l lg:border-r border-surface-50">
                 <Link 
-                  href={`/recruiter/candidates?job_title=${encodeURIComponent(job.title)}&status=all`}
+                  href={`/recruiter/candidates?job_id=${job.id}&status=all`}
                   className="text-center group cursor-pointer"
                 >
                   <div className="flex items-center justify-center gap-1.5 mb-1 text-surface-400">
@@ -225,7 +225,7 @@ export default function JobsPage() {
                 </Link>
 
                 <Link 
-                  href={`/recruiter/candidates?job_title=${encodeURIComponent(job.title)}&status=shortlisted`}
+                  href={`/recruiter/candidates?job_id=${job.id}&status=shortlisted`}
                   className="text-center group cursor-pointer"
                 >
                   <div className="flex items-center justify-center gap-1.5 mb-1 text-brand-600">
@@ -238,7 +238,7 @@ export default function JobsPage() {
                 </Link>
 
                 <Link 
-                  href={`/recruiter/candidates?job_title=${encodeURIComponent(job.title)}&status=interviewed`}
+                  href={`/recruiter/candidates?job_id=${job.id}&status=interviewed`}
                   className="text-center group cursor-pointer"
                 >
                   <div className="flex items-center justify-center gap-1.5 mb-1 text-green-600">
@@ -253,7 +253,7 @@ export default function JobsPage() {
 
               {/* Right: Actions */}
               <div className="flex flex-col sm:flex-row items-center gap-3 lg:ml-auto">
-                <Link href={`/recruiter/candidates?job_title=${encodeURIComponent(job.title)}`}
+                <Link href={`/recruiter/candidates?job_id=${job.id}`}
                   className="w-full sm:w-auto flex items-center justify-center gap-2 text-sm font-black uppercase tracking-widest text-white bg-brand-600 hover:bg-brand-700 px-6 py-3 rounded-xl transition-all shadow-card hover:shadow-card-hover active:scale-95">
                   <Users className="w-4 h-4" />
                   Manage

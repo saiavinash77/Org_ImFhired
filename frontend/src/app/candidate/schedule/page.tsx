@@ -4,10 +4,9 @@ export const dynamic = 'force-dynamic'
 
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import axios from 'axios'
 import Link from 'next/link'
 import { Calendar, Clock, CheckCircle, Loader2, ArrowLeft, MapPin } from 'lucide-react'
-import { getApiUrl } from '@/lib/api'
+import { scheduleApi } from '@/services/api'
 import toast from 'react-hot-toast'
 
 function ScheduleContent() {
@@ -22,20 +21,16 @@ function ScheduleContent() {
   const [booked, setBooked] = useState(false)
   const [bookedTime, setBookedTime] = useState('')
   const [jobTitle, setJobTitle] = useState('')
-
-  const token = typeof window !== 'undefined' ? localStorage.getItem('imfhired_token') : ''
-  const API = getApiUrl()
+  const [interviewLink, setInterviewLink] = useState('')
 
   useEffect(() => {
     if (!appId) return
     const fetchSlots = async () => {
       try {
-        const res = await axios.get(`${API}/api/v1/schedule/slots?application_id=${appId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        setSlots(res.data)
+        const res = await scheduleApi.getSlots(appId)
+        setSlots(res)
       } catch (err: any) {
-        toast.error(err.response?.data?.detail || 'Failed to load slots')
+        toast.error(err.message || 'Failed to load slots')
       } finally {
         setLoading(false)
       }
@@ -47,12 +42,8 @@ function ScheduleContent() {
     if (!selectedSlot) return
     setBooking(true)
     try {
-      await axios.post(`${API}/api/v1/schedule/book`, {
-        application_id: appId,
-        slot_id: selectedSlot,
-      }, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
+      const res = await scheduleApi.bookSlot(appId, selectedSlot)
+      setInterviewLink(res.unique_link)
 
       // Format the booked time for display
       const slot = slots.find(s => s.slot_id === selectedSlot)
@@ -66,7 +57,7 @@ function ScheduleContent() {
       setBooked(true)
       toast.success('Interview scheduled!')
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to book slot')
+      toast.error(err.message || 'Failed to book slot')
     } finally {
       setBooking(false)
     }
@@ -93,12 +84,18 @@ function ScheduleContent() {
           </h1>
           <p className="text-gray-500 mb-2">Your interview has been confirmed for:</p>
           <p className="text-blue-600 font-bold text-lg mb-6">{bookedTime}</p>
-          <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 mb-6 text-left">
-            <p className="text-sm text-blue-800 font-medium">
-              📧 A confirmation email has been sent to you with the details.
+          <div className="bg-blue-50 border border-blue-100 rounded-2xl p-5 mb-6 text-left">
+            <p className="text-sm text-blue-900 font-bold mb-4 text-center">
+              Your FiredIn AI Interview room is ready!
             </p>
-            <p className="text-sm text-blue-700 mt-2">
-              The recruiter will reach out to you with the meeting link or further instructions before the scheduled time.
+            <div className="flex justify-center w-full">
+              <Link href={interviewLink}
+                className="w-full text-center px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg transition-all">
+                Join Interview Room
+              </Link>
+            </div>
+            <p className="text-[11px] text-blue-700 mt-4 text-center font-medium">
+              * Note: Since you are testing locally, the email was blocked by Resend. Bookmark or click the link above directly!
             </p>
           </div>
           <Link href="/candidate/dashboard"
@@ -124,7 +121,7 @@ function ScheduleContent() {
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
             <span className="text-white font-black text-[9px]">IF</span>
           </div>
-          <span className="font-black text-gray-900">ImFhired</span>
+          <span className="font-black text-gray-900">FiredIn</span>
         </div>
 
         <div className="mb-8">

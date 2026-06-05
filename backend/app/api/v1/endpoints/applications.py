@@ -115,7 +115,7 @@ async def run_screening_pipeline(
                         job_id,
                     )
                 if job:
-                    jd_data = row_to_dict(job)
+                    jd_data = row_to_row_to_dict(job)
                 else:
                     print(f"WARN: Job {job_id} not found during screening")
             except Exception as e:
@@ -154,7 +154,8 @@ async def run_screening_pipeline(
         }
         if parsed_data:
             try:
-                update_data["parsed_data"] = parsed_data.model_dump()
+                import json as _json
+                update_data["parsed_data"] = _json.dumps(parsed_data.model_dump())
                 update_data["resume_summary"] = parsed_data.summary
             except Exception:
                 pass
@@ -468,7 +469,7 @@ async def get_application_status(application_id: str):
         )
     if not result:
         raise HTTPException(status_code=404, detail="Application not found.")
-    app_data = row_to_dict(result)
+    app_data = row_to_row_to_dict(result)
     app_data["resume_url"] = generate_presigned_url_if_s3(app_data.get("resume_url"))
     return app_data
 
@@ -530,7 +531,7 @@ async def list_applications(
             """,
             *params,
         )
-    apps = [row_to_dict(r) for r in rows]
+    apps = [row_to_row_to_dict(r) for r in rows]
     
     # 1. Fetch all assessment IDs for these applications to ensure status sync
     app_ids = [a["id"] for a in apps] if apps else []
@@ -553,16 +554,20 @@ async def list_applications(
     else:
         interviewed_app_ids = set()
 
-    # Enrich with candidate full_name from profiles
+    # Enrich with candidate full_name + verification score from profiles
     candidate_ids = list({a["candidate_id"] for a in apps if a.get("candidate_id")})
     profiles_map = {}
     if candidate_ids:
         async with pool.acquire() as conn:
             profiles_res = await conn.fetch(
-                "SELECT id, full_name, phone FROM profiles WHERE id = ANY($1::uuid[])",
+                """
+                SELECT id, full_name, phone,
+                       verification_score, verification_status, verified_at
+                FROM profiles WHERE id = ANY($1::uuid[])
+                """,
                 candidate_ids,
             )
-        profiles_map = {p["id"]: row_to_dict(p) for p in profiles_res}
+        profiles_map = {p["id"]: dict(p) for p in profiles_res}
     
     for app in apps:
         app["resume_url"] = generate_presigned_url_if_s3(app.get("resume_url"))
@@ -594,6 +599,13 @@ async def list_applications(
 
         app["candidate_name"] = final_name
         app["candidate_phone"] = profile.get("phone") or ""
+        # Add verification score so recruiter can see it
+        app["verification_score"] = profile.get("verification_score")
+        app["is_verified"] = (
+            profile.get("verification_status") == "completed"
+            and profile.get("verification_score") is not None
+            and float(profile.get("verification_score") or 0) >= 40.0
+        )
     
     return apps
 
@@ -617,7 +629,7 @@ async def list_my_applications(
             """,
             current_user["sub"],
         )
-    apps = [row_to_dict(r) for r in rows]
+    apps = [row_to_row_to_dict(r) for r in rows]
     for app in apps:
         app["resume_url"] = generate_presigned_url_if_s3(app.get("resume_url"))
     return apps

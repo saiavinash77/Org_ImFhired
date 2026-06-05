@@ -56,17 +56,24 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
             job_ids,
         )
     apps_data = [row_to_dict(r) for r in apps_rows]
-    
-    # Fetch candidate profiles
+    for a in apps_data:
+        import json
+        if isinstance(a.get("jobs"), str):
+            try: a["jobs"] = json.loads(a["jobs"])
+            except: a["jobs"] = {}
+        if isinstance(a.get("users"), str):
+            try: a["users"] = json.loads(a["users"])
+            except: a["users"] = {}
+
     candidate_ids = list({a["candidate_id"] for a in apps_data if a.get("candidate_id")})
     profiles_map = {}
     if candidate_ids:
         async with pool.acquire() as conn:
             profiles_rows = await conn.fetch(
-                "SELECT id, full_name FROM profiles WHERE id = ANY($1::uuid[])",
+                "SELECT id, full_name, is_verified FROM profiles WHERE id = ANY($1::uuid[])",
                 candidate_ids,
             )
-        profiles_map = {p["id"]: p["full_name"] for p in profiles_rows}
+        profiles_map = {p["id"]: {"name": p["full_name"], "is_verified": p["is_verified"]} for p in profiles_rows}
     
     # Build a per-application name map: prefer resume parsed name over profile name
     # This handles cases where a candidate applies using someone else's account
@@ -83,7 +90,8 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
             return resume_name.strip()
         
         # 2. Try profile full_name
-        profile_name = profiles_map.get(app.get("candidate_id"), "") or ""
+        p_data = profiles_map.get(app.get("candidate_id"), {})
+        profile_name = p_data.get("name", "") or ""
         if profile_name and profile_name.lower() not in ("daya", "mock", "test"):
             return profile_name.strip()
             
@@ -141,7 +149,8 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
             app_data = app_map.get(iv["application_id"], {})
             c_name = resolve_candidate_name(app_data)
             
-            j_title = app_data.get("jobs", {}).get("title", "Unknown Role") if app_data.get("jobs") else "Unknown Role"
+            job_dict = app_data.get("jobs") or {}
+            j_title = job_dict.get("title") or "Unknown Role"
             initials = "".join([n[0] for n in c_name.split()[:2] if n]).upper() if c_name != "Unknown" else "U"
             
             time_str = sched_dt.strftime("%I:%M %p")
@@ -165,11 +174,27 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
     for app in apps_data[:5]:
         candidate_name = resolve_candidate_name(app)
         
-        job_title = app.get("jobs", {}).get("title", "Unknown Role") if app.get("jobs") else "Unknown Role"
-        # simple time diff
-        created_dt = datetime.fromisoformat(app["created_at"].replace('Z', '+00:00'))
-        hours_ago = int((datetime.now(created_dt.tzinfo) - created_dt).total_seconds() / 3600)
-        time_str = f"{hours_ago}h ago" if hours_ago < 24 else f"{hours_ago // 24}d ago"
+        job_dict = app.get("jobs") or {}
+        job_title = job_dict.get("title") or "Unknown Role"
+        
+        # Determine time since applied
+        created_val = app.get("created_at")
+        if isinstance(created_val, str):
+            created_dt = datetime.fromisoformat(created_val.replace('Z', '+00:00'))
+        else:
+            created_dt = created_val
+            
+        if created_dt:
+            # Ensure timezone awareness for comparison
+            if created_dt.tzinfo is None:
+                from datetime import timezone
+                created_dt = created_dt.replace(tzinfo=timezone.utc)
+            
+            now_aware = datetime.now(created_dt.tzinfo)
+            hours_ago = int((now_aware - created_dt).total_seconds() / 3600)
+            time_str = f"{hours_ago}h ago" if hours_ago < 24 else f"{hours_ago // 24}d ago"
+        else:
+            time_str = "Recently"
         
         avatar = "".join([n[0] for n in candidate_name.split()[:2]]).upper() if candidate_name else "U"
         
@@ -187,7 +212,8 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
             "score": formatted_score, 
             "status": app_status,
             "time": time_str,
-            "avatar": avatar
+            "avatar": avatar,
+            "is_verified": profiles_map.get(app.get("candidate_id"), {}).get("is_verified", False)
         })
         
     return {
@@ -332,8 +358,12 @@ async def get_analytics_metrics(current_user: dict = Depends(get_current_user), 
             job_ids,
         )
     apps_data = [row_to_dict(r) for r in apps_rows]
-    
-    # Pipeline stages
+    for a in apps_data:
+        import json
+        if isinstance(a.get("jobs"), str):
+            try: a["jobs"] = json.loads(a["jobs"])
+            except: a["jobs"] = {}
+
     applied = len(apps_data)
     
     # 1. Fetch assessments to ensure 'Interviewed' status is accurate even if application status hasn't synced
@@ -366,10 +396,14 @@ async def get_analytics_metrics(current_user: dict = Depends(get_current_user), 
     hired = hired_raw
 
     # 2. Calculate AI Match Accuracy (Average of ai_score)
-    scores = [a.get("ai_score") or 0 for a in apps_data if a.get("ai_score") is not None]
-    # If scores are 0-1, convert to pct; if 0-100, keep as is
+    scores = [a.get("ai_score") for a in apps_data if a.get("ai_score") is not None]
+    
     def normalize_score(s):
-        return s * 100 if s <= 1.0 else s
+        try:
+            val = float(s)
+            return val * 100 if val <= 1.0 else val
+        except (TypeError, ValueError):
+            return 0.0
     
     normalized_scores = [normalize_score(s) for s in scores]
     avg_accuracy = int(sum(normalized_scores) / len(normalized_scores)) if normalized_scores else 0

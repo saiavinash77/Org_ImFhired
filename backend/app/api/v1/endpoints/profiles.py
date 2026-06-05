@@ -13,7 +13,8 @@ from app.core.config import settings
 from app.schemas.schemas import ProfileResponse, ProfileUpdate
 from app.api.v1.endpoints.auth import get_current_user
 from app.services.resume_parser import resume_parser
-from app.services.s3_utils import generate_presigned_url_if_s3
+from app.services.s3_utils import generate_presigned_url_if_s3, get_s3_client
+from app.services.profile_vector_service import get_profile_vector_service
 
 router = APIRouter()
 
@@ -26,15 +27,15 @@ async def ensure_user_profile_rows(conn, current_user: dict) -> dict:
 
     await conn.execute(
         """
-        INSERT INTO users (id, email, role)
-        VALUES ($1, $2, $3)
+        INSERT INTO users (id, email, role, cognito_sub)
+        VALUES ($1, $2, $3, $4)
         ON CONFLICT (id) DO UPDATE SET
-            email = EXCLUDED.email,
             role = EXCLUDED.role
         """,
         user_id,
         fallback_email,
         role,
+        user_id,
     )
 
     profile = await conn.fetchrow("SELECT * FROM profiles WHERE id = $1 LIMIT 1", user_id)
@@ -58,12 +59,7 @@ async def ensure_user_profile_rows(conn, current_user: dict) -> dict:
 async def upload_profile_resume_to_s3(file: UploadFile, user_id: str) -> str:
     """Upload resume file to AWS S3 under the user's profile and return public URL."""
     try:
-        s3 = boto3.client(
-            "s3",
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-            region_name=settings.AWS_REGION,
-        )
+        s3 = get_s3_client()
         
         extension = file.filename.split(".")[-1].lower()
         key = f"profiles/{user_id}/{uuid.uuid4()}.{extension}"
@@ -77,7 +73,8 @@ async def upload_profile_resume_to_s3(file: UploadFile, user_id: str) -> str:
             ServerSideEncryption="AES256",
         )
         
-        return f"https://{settings.AWS_S3_BUCKET}.s3.{settings.AWS_REGION}.amazonaws.com/{key}"
+        region = settings.AWS_S3_REGION or settings.AWS_REGION
+        return f"https://{settings.AWS_S3_BUCKET}.s3.{region}.amazonaws.com/{key}"
     except Exception as e:
         print(f"DEBUG: S3 Upload failed (Profile): {e}")
         # Fallback local dummy URL if AWS is not configured properly
@@ -102,7 +99,7 @@ async def update_my_profile(
     """Manually update text fields on the candidate profile."""
     pool = await get_pg_pool()
     
-    update_dict = data.dict(exclude_unset=True)
+    update_dict = data.model_dump(exclude_unset=True)
     if not update_dict:
         raise HTTPException(status_code=400, detail="No fields provided to update.")
 
@@ -116,17 +113,20 @@ async def update_my_profile(
         )
     if not row:
         raise HTTPException(status_code=404, detail="Failed to update profile.")
+
+    # Automatically trigger composite search vector update!
+    try:
+        vector_svc = get_profile_vector_service()
+        await vector_svc.update_candidate_embedding(current_user["sub"])
+    except Exception as ex:
+        print(f"Failed to update candidate search embedding: {ex}")
+
     return row_to_dict(row)
 
 async def upload_profile_avatar_to_s3(file: UploadFile, user_id: str) -> str:
     """Upload avatar to S3 or return fallback."""
     try:
-        s3 = boto3.client(
-            "s3",
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-            region_name=settings.AWS_REGION,
-        )
+        s3 = get_s3_client()
         extension = file.filename.split(".")[-1].lower() if "." in file.filename else "jpg"
         key = f"avatars/{user_id}/{uuid.uuid4()}.{extension}"
         content = await file.read()
@@ -138,7 +138,8 @@ async def upload_profile_avatar_to_s3(file: UploadFile, user_id: str) -> str:
             ContentType=file.content_type,
             ServerSideEncryption="AES256",
         )
-        return f"https://{settings.AWS_S3_BUCKET}.s3.{settings.AWS_REGION}.amazonaws.com/{key}"
+        region = settings.AWS_S3_REGION or settings.AWS_REGION
+        return f"https://{settings.AWS_S3_BUCKET}.s3.{region}.amazonaws.com/{key}"
     except Exception as e:
         print(f"DEBUG: S3 Upload failed (Avatar): {e}")
         return f"/avatars/{user_id}_{file.filename}"
@@ -253,6 +254,14 @@ async def upload_and_parse_resume(
         )
     if not row:
         raise HTTPException(status_code=500, detail="Failed to save profile updates.")
+
+    # Automatically trigger composite search vector update!
+    try:
+        vector_svc = get_profile_vector_service()
+        await vector_svc.update_candidate_embedding(user_id)
+    except Exception as ex:
+        print(f"Failed to update candidate search embedding: {ex}")
+
     profile_data = row_to_dict(row)
     profile_data["resume_url"] = generate_presigned_url_if_s3(profile_data.get("resume_url"))
     return profile_data
@@ -286,6 +295,14 @@ async def delete_my_resume(current_user: dict = Depends(get_current_user)):
         )
     if not result:
         raise HTTPException(status_code=404, detail="Profile not found.")
+
+    # Automatically trigger composite search vector update!
+    try:
+        vector_svc = get_profile_vector_service()
+        await vector_svc.update_candidate_embedding(user_id)
+    except Exception as ex:
+        print(f"Failed to update candidate search embedding: {ex}")
+
     return row_to_dict(result)
 
 

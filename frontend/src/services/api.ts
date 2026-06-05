@@ -1,5 +1,5 @@
 /**
- * API Service — Typed fetch wrappers for ImFhired backend.
+ * API Service — Typed fetch wrappers for FiredIn backend.
  * All endpoints point to FastAPI at NEXT_PUBLIC_API_URL (see getApiUrl).
  */
 
@@ -23,7 +23,7 @@ class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('imfhired_token') : null
+  const token = typeof window !== 'undefined' ? localStorage.getItem('firedin_token') : null
 
   const res = await fetch(`${BASE_URL}${path}`, {
     ...options,
@@ -63,8 +63,10 @@ export const authApi = {
 // ─── Profiles ────────────────────────────────────────────────
 
 export const profilesApi = {
+  get: () => request<AuthUser>('/api/v1/profiles/me'),
+
   uploadAvatar: (formData: FormData) => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('imfhired_token') : null
+    const token = typeof window !== 'undefined' ? localStorage.getItem('firedin_token') : null
     return fetch(`${BASE_URL}/api/v1/profiles/me/avatar`, {
       method: 'POST',
       body: formData,
@@ -74,19 +76,38 @@ export const profilesApi = {
     }).then(r => r.json())
   },
 
-  updateProfile: (data: Record<string, any>) =>
-    request('/api/v1/profiles/me', { method: 'PUT', body: JSON.stringify(data) }),
+  updateProfile: (data: Record<string, unknown>) =>
+    request<AuthUser['profile']>('/api/v1/profiles/me', { method: 'PUT', body: JSON.stringify(data) }),
+
+  uploadResume: (formData: FormData) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('firedin_token') : null
+    return fetch(`${BASE_URL}/api/v1/profiles/me/resume`, {
+      method: 'POST',
+      body: formData,
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      }
+    }).then(async r => {
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({ detail: 'Upload failed' }))
+        throw new ApiError(r.status, err.detail || 'Upload failed')
+      }
+      return r.json()
+    })
+  },
+
+  deleteResume: () => request<any>('/api/v1/profiles/me/resume', { method: 'DELETE' }),
 }
 
 // ─── Jobs ────────────────────────────────────────────────────
 
 export const jobsApi = {
-  list: (params?: { status?: string; department?: string; search?: string }) => {
+  list: (params?: Record<string, unknown>) => {
     const qs = new URLSearchParams(params as Record<string, string>).toString()
-    return request(`/api/v1/jobs/${qs ? `?${qs}` : ''}`)
+    return request<any[]>(`/api/v1/jobs/${qs ? `?${qs}` : ''}`)
   },
 
-  get: (jobId: string) => request(`/api/v1/jobs/${jobId}`),
+  get: (jobId: string) => request<any>(`/api/v1/jobs/${jobId}`),
 
   create: (data: Record<string, unknown>) =>
     request('/api/v1/jobs', { method: 'POST', body: JSON.stringify(data) }),
@@ -103,39 +124,77 @@ export const jobsApi = {
 // ─── Applications ────────────────────────────────────────────
 
 export const applicationsApi = {
-  apply: (formData: FormData) =>
-    fetch(`${BASE_URL}/api/v1/applications/apply`, {
+  apply: (formData: FormData) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('firedin_token') : null
+    return fetch(`${BASE_URL}/api/v1/applications/apply`, {
       method: 'POST',
       body: formData,
-    }).then(r => r.json()),
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      }
+    }).then(async r => {
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({ detail: 'Application failed' }))
+        throw new ApiError(r.status, err.detail || 'Application failed')
+      }
+      return r.json()
+    })
+  },
 
   getStatus: (applicationId: string) =>
     request(`/api/v1/applications/${applicationId}/status`),
 
-  list: (params?: { jobId?: string; status?: string }) => {
+  list: (params?: Record<string, unknown>) => {
     const qs = new URLSearchParams(params as Record<string, string>).toString()
     return request(`/api/v1/applications/${qs ? `?${qs}` : ''}`)
   },
+
+  listMe: () => request<any[]>('/api/v1/applications/me'),
 }
 
 // ─── Schedule ────────────────────────────────────────────────
 
 export const scheduleApi = {
   getSlots: (applicationId: string) =>
-    request(`/api/v1/schedule/slots?application_id=${applicationId}`),
+    request<any[]>(`/api/v1/schedule/slots?application_id=${applicationId}`),
 
   bookSlot: (applicationId: string, slotId: string) =>
-    request('/api/v1/schedule/book', {
+    request<{ unique_link: string }>('/api/v1/schedule/book', {
       method: 'POST',
       body: JSON.stringify({ application_id: applicationId, slot_id: slotId }),
     }),
 }
 
+// ─── Verification ────────────────────────────────────────────
+
+export const verificationApi = {
+  status: () => request<{ verified: boolean; score?: number }>('/api/v1/verification/status'),
+}
+
+// ─── Stories & Search ────────────────────────────────────────
+
+export const storiesApi = {
+  post: (content: string) => request('/api/v1/stories/', { method: 'POST', body: JSON.stringify({ content }) }),
+  getToday: () => request<{ posted_today: boolean; story: any }>('/api/v1/stories/today'),
+  getFeed: (tag?: string) => request<any[]>(`/api/v1/stories/feed${tag ? `?tag=${tag}` : ''}`),
+}
+
+export const searchApi = {
+  candidates: (query: string, limit: number = 20) => 
+    request('/api/v1/search/candidates', { method: 'POST', body: JSON.stringify({ query, limit }) }),
+  
+  candidates_boss: () => request<any>('/api/v1/search/boss-recommendations'),
+}
+
 // ─── Assessments ─────────────────────────────────────────────
 
 export const assessmentsApi = {
-  get: (interviewId: string) => request(`/api/v1/assessments/${interviewId}`),
-  list: (jobId?: string) => request(`/api/v1/assessments/${jobId ? `?job_id=${jobId}` : ''}`),
+  get: (interviewId: string) => request<any>(`/api/v1/assessments/${interviewId}`),
+  list: (jobId?: string) => request<any[]>(`/api/v1/assessments/${jobId ? `?job_id=${jobId}` : ''}`),
+  getTranscript: (interviewId: string) => request<{ transcript: any[] }>(`/api/v1/assessments/${interviewId}/transcript`),
+  sendOffer: (interviewId: string) => request<{ candidate_email: string }>(`/api/v1/assessments/${interviewId}/send-offer`, { method: 'POST' }),
+  triggerAssessment: (interviewId: string) => request<any>(`/api/v1/assessments/${interviewId}/trigger-assessment`, { method: 'POST' }),
+  regenerate: (interviewId: string) => request<any>(`/api/v1/assessments/${interviewId}/regenerate`, { method: 'POST' }),
 }
 
 // ─── Analytics ─────────────────────────────────────────────
@@ -150,5 +209,5 @@ export const analyticsApi = {
 
 export const createInterviewWebSocket = (interviewId: string, token: string): WebSocket => {
   const wsBase = BASE_URL.replace('http', 'ws').replace('https', 'wss')
-  return new WebSocket(`${wsBase}/ws/v1/interview/${interviewId}?token=${token}`)
+  return new WebSocket(`${wsBase}/ws/v1/realtime/${interviewId}?token=${token}`)
 }

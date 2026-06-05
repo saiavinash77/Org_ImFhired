@@ -207,6 +207,166 @@ async def regenerate_assessment(
     })
 
 
+@router.post("/{interview_id}/trigger-assessment")
+async def trigger_assessment_directly(
+    interview_id: str,
+    request: Request,
+):
+    """
+    Direct endpoint to trigger assessment generation if it hasn't been created yet.
+    Useful for debugging or manual recovery.
+    Works for both job interviews and verification interviews.
+    """
+    pool = await get_pg_pool()
+
+    # Check if assessment already exists
+    try:
+        async with pool.acquire() as conn:
+            existing = await conn.fetchrow(
+                "SELECT id FROM assessments WHERE interview_id = $1 LIMIT 1",
+                uuid.UUID(interview_id),
+            )
+        if existing:
+            return JSONResponse(content={
+                "success": False,
+                "message": "Assessment already exists for this interview.",
+            })
+    except Exception:
+        pass
+
+    # Check if this is a verification interview
+    is_verification = False
+    try:
+        async with pool.acquire() as conn:
+            vi_check = await conn.fetchrow(
+                "SELECT id FROM verification_interviews WHERE id = $1 LIMIT 1",
+                uuid.UUID(interview_id),
+            )
+        is_verification = vi_check is not None
+    except Exception:
+        pass
+
+    # Fetch interview data
+    try:
+        if is_verification:
+            async with pool.acquire() as conn:
+                interview_data = await conn.fetchrow(
+                    """
+                    SELECT
+                        vi.*,
+                        to_jsonb(p) AS profiles
+                    FROM verification_interviews vi
+                    LEFT JOIN profiles p ON p.id = vi.candidate_id
+                    WHERE vi.id = $1
+                    LIMIT 1
+                    """,
+                    uuid.UUID(interview_id),
+                )
+        else:
+            async with pool.acquire() as conn:
+                interview_data = await conn.fetchrow(
+                    """
+                    SELECT
+                        i.*,
+                        to_jsonb(a) AS applications,
+                        to_jsonb(j) AS jobs,
+                        to_jsonb(u) AS users,
+                        to_jsonb(p) AS profiles
+                    FROM interviews i
+                    LEFT JOIN applications a ON a.id = i.application_id
+                    LEFT JOIN jobs j ON j.id = a.job_id
+                    LEFT JOIN users u ON u.id = a.candidate_id
+                    LEFT JOIN profiles p ON p.id = a.candidate_id
+                    WHERE i.id = $1
+                    LIMIT 1
+                    """,
+                    uuid.UUID(interview_id),
+                )
+        interview_data = row_to_dict(interview_data) if interview_data else None
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB error: {exc}")
+
+    if not interview_data:
+        raise HTTPException(status_code=404, detail="Interview not found.")
+
+    # Extract data
+    transcript = interview_data.get("transcript") or []
+    if isinstance(transcript, str):
+        import json as _json
+        try:
+            transcript = _json.loads(transcript)
+        except Exception:
+            transcript = []
+
+    proctoring_logs = interview_data.get("proctoring_logs") or []
+    if isinstance(proctoring_logs, str):
+        import json as _json
+        try:
+            proctoring_logs = _json.loads(proctoring_logs)
+        except Exception:
+            proctoring_logs = []
+
+    # Build job and resume data
+    if is_verification:
+        job_data = {"title": "Verification Interview", "requirements": [], "description": ""}
+        resume_data = interview_data.get("profiles", {}).get("parsed_data") or {}
+    else:
+        applications = interview_data.get("applications") or {}
+        jobs = applications.get("jobs") or {}
+        
+        job_data = {
+            "title": jobs.get("title", "Unknown Role"),
+            "description": jobs.get("description", ""),
+            "requirements": list(jobs.get("requirements") or []),
+            "required_skills": list(jobs.get("requirements") or []),
+            "salary_min": jobs.get("salary_min", 0),
+            "salary_max": jobs.get("salary_max", 0),
+        }
+
+        resume_data = applications.get("parsed_data") or {}
+        if isinstance(resume_data, str):
+            import json as _json
+            try:
+                resume_data = _json.loads(resume_data)
+            except Exception:
+                resume_data = {}
+
+    # Trigger assessment
+    from app.services.assessment_generator import generate_assessment
+    
+    termination_reason = interview_data.get("termination_reason") or "completed"
+    
+    # Use asyncio.ensure_future for better error tracking
+    task = asyncio.ensure_future(
+        generate_assessment(
+            interview_id,
+            transcript,
+            proctoring_logs,
+            termination_reason=termination_reason,
+            is_verification=is_verification,
+        )
+    )
+    
+    # Add callback for logging
+    def log_completion(fut):
+        try:
+            fut.result()
+            logger.info(f"[TriggerAssessment] Assessment completed for {interview_id}")
+        except Exception as e:
+            logger.error(f"[TriggerAssessment] Assessment failed for {interview_id}: {e}")
+    
+    task.add_done_callback(log_completion)
+    logger.info(f"[TriggerAssessment] Manually triggered for {interview_id} (verification={is_verification})")
+
+    return JSONResponse(content={
+        "success": True,
+        "message": f"Assessment generation triggered for {interview_id}. "
+                   f"Transcript has {len(transcript)} turns. "
+                   "Check back in 30-60 seconds.",
+        "transcript_turns": len(transcript),
+    })
+
+
 @router.get("/", response_model=list[AssessmentResponse])
 async def list_assessments(
     job_id: str = None,
@@ -436,7 +596,7 @@ async def send_offer(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Job Offer - ImFhired</title>
+  <title>Job Offer - FiredIn</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f0f2f5;font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f2f5;padding:40px 16px;">
@@ -496,7 +656,7 @@ async def send_offer(
               </table>
 
               <p style="color:#334155;font-size:15px;line-height:1.75;margin:0 0 24px;">
-                Please review the full offer details in the ImFhired portal and confirm your acceptance.
+                Please review the full offer details in the FiredIn portal and confirm your acceptance.
                 If you have any questions or would like to discuss the terms, please reply to this email.
               </p>
 
@@ -524,8 +684,8 @@ async def send_offer(
           <!-- FOOTER -->
           <tr>
             <td style="background:#f8fafc;padding:24px 40px;text-align:center;border-top:1px solid #e2e8f0;">
-              <p style="color:#64748b;font-size:13px;margin:0 0 4px;font-weight:600;">Powered by ImFhired</p>
-              <p style="color:#94a3b8;font-size:12px;margin:0;">The Next Door for Experienced Talent &bull; <a href="https://imfhired.in" style="color:#6366f1;text-decoration:none;">ashishai.in</a></p>
+              <p style="color:#64748b;font-size:13px;margin:0 0 4px;font-weight:600;">Powered by FiredIn</p>
+              <p style="color:#94a3b8;font-size:12px;margin:0;">The Next Door for Experienced Talent &bull; <a href="https://firedin.in" style="color:#6366f1;text-decoration:none;">ashishai.in</a></p>
             </td>
           </tr>
 
@@ -536,7 +696,7 @@ async def send_offer(
 </body>
 </html>"""
 
-    subject = f"Job Offer: {job_title} — ImFhired"
+    subject = f"Job Offer: {job_title} — FiredIn"
     email_sent = await _send_resend_email(candidate_email, subject, html_body)
 
     if not email_sent:

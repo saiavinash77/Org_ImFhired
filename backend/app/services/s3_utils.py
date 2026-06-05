@@ -5,14 +5,14 @@ AWS credential strategy:
   - LOCAL DEV:  boto3 uses AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY from .env
   - PRODUCTION: boto3 automatically uses the ECS Task IAM Role via instance
                 metadata (169.254.170.2). No keys needed in the environment.
-                The IAM role `hireai-ecs-task` grants s3:GetObject + s3:PutObject.
+                The IAM role `firedin-ecs-task` grants s3:GetObject + s3:PutObject.
 """
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 from app.core.config import settings
 
 
-def _get_s3_client():
+def get_s3_client():
     """
     Return a boto3 S3 client.
 
@@ -22,7 +22,7 @@ def _get_s3_client():
     On local dev: falls back to AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
     from the .env file if they are set.
     """
-    kwargs = {"region_name": settings.AWS_REGION}
+    kwargs = {"region_name": settings.AWS_S3_REGION or settings.AWS_REGION}
 
     # Only pass explicit keys when running locally (both env vars present).
     # In production on ECS these will be empty strings and boto3 will
@@ -52,17 +52,26 @@ def generate_presigned_url_if_s3(url: str, expiry_seconds: int = 3600) -> str:
         return url
 
     try:
-        s3 = _get_s3_client()
+        s3 = get_s3_client()
 
-        # Extract the object key from the S3 URL.
-        # URL formats:
-        #   https://<bucket>.s3.<region>.amazonaws.com/<key>
-        #   https://s3.<region>.amazonaws.com/<bucket>/<key>
+        # Extract bucket and key from the S3 URL.
+        # Format 1: https://<bucket>.s3.<region>.amazonaws.com/<key>
+        # Format 2: https://<bucket>.s3.amazonaws.com/<key> (legacy)
+        
+        import re
+        bucket = settings.AWS_S3_BUCKET
         key = url.split(".amazonaws.com/")[-1]
-
+        
+        # Try to extract bucket name from the hostname
+        # e.g. hireai-uploads-prod.s3.ap-south-1.amazonaws.com
+        hostname = url.split("/")[2]
+        match = re.match(r"^(.+)\.s3[\.-]", hostname)
+        if match:
+            bucket = match.group(1)
+        
         presigned_url = s3.generate_presigned_url(
             "get_object",
-            Params={"Bucket": settings.AWS_S3_BUCKET, "Key": key},
+            Params={"Bucket": bucket, "Key": key},
             ExpiresIn=expiry_seconds,
         )
         return presigned_url
@@ -98,7 +107,7 @@ def upload_file_to_s3(file_bytes: bytes, key: str, content_type: str = "applicat
         The S3 object URL (private, non-presigned).
     """
     try:
-        s3 = _get_s3_client()
+        s3 = get_s3_client()
         s3.put_object(
             Bucket=settings.AWS_S3_BUCKET,
             Key=key,
@@ -106,7 +115,7 @@ def upload_file_to_s3(file_bytes: bytes, key: str, content_type: str = "applicat
             ContentType=content_type,
             ServerSideEncryption="AES256",
         )
-        region = settings.AWS_REGION
+        region = settings.AWS_S3_REGION or settings.AWS_REGION
         bucket = settings.AWS_S3_BUCKET
         return f"https://{bucket}.s3.{region}.amazonaws.com/{key}"
     except Exception as e:

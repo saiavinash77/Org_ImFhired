@@ -1,4 +1,4 @@
-# 🤖 HireAI — AI Interviewer & Skill Assessment Platform
+# 🤖 FiredIn — AI Interviewer & Skill Assessment Platform
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=flat&logo=fastapi)](https://fastapi.tiangolo.com/)

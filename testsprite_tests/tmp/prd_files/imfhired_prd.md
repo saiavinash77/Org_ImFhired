@@ -1,7 +1,7 @@
-# ImFhired — Product Requirements Document
+# FiredIn — Product Requirements Document
 
 ## Overview
-ImFhired is an AI-powered hiring platform for experienced professionals who were laid off or want to switch jobs. It is NOT a job board — it is a verification + matching platform.
+FiredIn is an AI-powered hiring platform for experienced professionals who were laid off or want to switch jobs. It is NOT a job board — it is a verification + matching platform.
 
 ## Core Concept
 Candidates complete a one-time AI verification interview based on their resume. They get a Verified badge with a score. Recruiters see this score when candidates apply. No second interview — the verification score IS the signal.

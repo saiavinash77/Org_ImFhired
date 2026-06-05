@@ -147,7 +147,7 @@ export default function AnalyticsPage() {
     const encodedUri = encodeURI(csvContent)
     const link = document.createElement("a")
     link.setAttribute("href", encodedUri)
-    link.setAttribute("download", `imfhired_analytics_${range}.csv`)
+    link.setAttribute("download", `firedin_analytics_${range}.csv`)
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -160,7 +160,7 @@ export default function AnalyticsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold font-display text-surface-900">Recruitment Analytics</h1>
-          <p className="text-surface-600 font-medium mt-1">Real-time hiring insights powered by ImFhired</p>
+          <p className="text-surface-600 font-medium mt-1">Real-time hiring insights powered by FiredIn</p>
         </div>
         <div className="flex items-center gap-3">
           {/* Range Selector */}

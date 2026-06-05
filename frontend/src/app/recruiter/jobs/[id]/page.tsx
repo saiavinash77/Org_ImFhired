@@ -35,7 +35,7 @@ export default function JobDetailsPage({ params }: { params: { id: string } }) {
   const handleShareLinkedIn = () => {
     if (!job) return
     const jobUrl = `${window.location.origin}/candidate/jobs?id=${job.id}`
-    const text = `🚀 We're hiring: ${job.title}\n📍 ${job.location || 'Remote'} | ${job.job_type?.replace('_', ' ') || 'Full-time'}\n\nApply via ImFhired — AI-powered interviews, instant results.\n\n👉 Apply here: ${jobUrl}`
+    const text = `🚀 We're hiring: ${job.title}\n📍 ${job.location || 'Remote'} | ${job.job_type?.replace('_', ' ') || 'Full-time'}\n\nApply via FiredIn — AI-powered interviews, instant results.\n\n👉 Apply here: ${jobUrl}`
     const shareUrl = `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(text)}`
     const w = 600, h = 650
     const left = Math.max(0, (window.screen.width - w) / 2)
@@ -56,7 +56,7 @@ export default function JobDetailsPage({ params }: { params: { id: string } }) {
   const handleDelete = async () => {
     if (!confirm('Are you sure you want to delete this job?')) return
     
-    const token = localStorage.getItem('imfhired_token')
+    const token = localStorage.getItem('firedin_token')
     if (!token) return toast.error('Auth required')
 
     try {

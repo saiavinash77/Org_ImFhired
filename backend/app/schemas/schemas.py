@@ -158,6 +158,7 @@ class UserResponse(BaseModel):
     id: str
     email: str
     role: UserRole
+    email_verified: bool = False
     profile: Optional[ProfileResponse] = None
     created_at: datetime
 

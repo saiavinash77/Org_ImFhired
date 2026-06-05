@@ -76,7 +76,7 @@ export default function EditJobPage({ params }: { params: { id: string } }) {
       return toast.error('Please fill all required fields.')
     }
     
-    const token = localStorage.getItem('imfhired_token')
+    const token = localStorage.getItem('firedin_token')
     if (!token) return toast.error('Auth required')
 
     setSubmitting(true)

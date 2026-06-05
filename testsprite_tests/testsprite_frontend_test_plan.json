@@ -18,7 +18,7 @@
     "steps": [
       "Navigate to http://localhost:3002/auth/login",
       "Click the button or link with text Job Seeker",
-      "Fill the email input with testcandidate@imfhired.com",
+      "Fill the email input with testcandidate@firedin.com",
       "Fill the password input with Test1234!",
       "Click the Sign In button",
       "Verify the URL contains /candidate"
@@ -31,7 +31,7 @@
     "steps": [
       "Navigate to http://localhost:3002/auth/login",
       "Click the button or link with text Recruiter",
-      "Fill the email input with testrecruiter@imfhired.com",
+      "Fill the email input with testrecruiter@firedin.com",
       "Fill the password input with Test1234!",
       "Click the Sign In button",
       "Verify the URL contains /recruiter",
@@ -44,7 +44,7 @@
     "description": "Login with wrong password shows an error message",
     "steps": [
       "Navigate to http://localhost:3002/auth/login",
-      "Fill the email input with testcandidate@imfhired.com",
+      "Fill the email input with testcandidate@firedin.com",
       "Fill the password input with WrongPass999!",
       "Click the Sign In button",
       "Verify an error message containing Invalid is visible"
@@ -78,7 +78,7 @@
     "steps": [
       "Navigate to http://localhost:3002/auth/login",
       "Click the button or link with text Recruiter",
-      "Fill the email input with testrecruiter@imfhired.com",
+      "Fill the email input with testrecruiter@firedin.com",
       "Fill the password input with Test1234!",
       "Click the Sign In button",
       "Navigate to http://localhost:3002/recruiter/jobs",
@@ -92,7 +92,7 @@
     "steps": [
       "Navigate to http://localhost:3002/auth/login",
       "Click the button or link with text Recruiter",
-      "Fill the email input with testrecruiter@imfhired.com",
+      "Fill the email input with testrecruiter@firedin.com",
       "Fill the password input with Test1234!",
       "Click the Sign In button",
       "Navigate to http://localhost:3002/recruiter/candidates",
@@ -106,7 +106,7 @@
     "steps": [
       "Navigate to http://localhost:3002/auth/login",
       "Click the button or link with text Job Seeker",
-      "Fill the email input with testcandidate@imfhired.com",
+      "Fill the email input with testcandidate@firedin.com",
       "Fill the password input with Test1234!",
       "Click the Sign In button",
       "Navigate to http://localhost:3002/candidate/jobs",

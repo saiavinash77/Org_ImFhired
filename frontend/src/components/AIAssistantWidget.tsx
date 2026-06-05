@@ -20,7 +20,7 @@ export default function AIAssistantWidget({ isOpen, onClose }: Props) {
   const [messages, setMessages] = useState<Message[]>([
     { 
       role: 'assistant', 
-      content: `Hello! I am your ImFhired Recruitment Assistant. I can help you manage your talent pipeline effectively:
+      content: `Hello! I am your FiredIn Recruitment Assistant. I can help you manage your talent pipeline effectively:
 
 1. **Candidate Screening**: Get instant summaries of recent interview transcripts and AI scores.
 2. **Talent Matching**: Ask me to identify top candidates for any of your active job postings.
@@ -51,7 +51,7 @@ What can I help you with today?`
     setIsLoading(true)
 
     try {
-      const token = localStorage.getItem('imfhired_token')
+      const token = localStorage.getItem('firedin_token')
       const API_URL = getApiUrl()
       const res = await fetch(`${API_URL}/api/v1/assistant/`, {
         method: 'POST',
@@ -87,7 +87,7 @@ What can I help you with today?`
             <div className="w-9 h-9 border-2 border-brand-200 rounded-full overflow-hidden shadow-sm">
                 <Image src="/avatars/ai-core.png" alt="AI" width={36} height={36} className="object-cover" />
             </div>
-            <span className="font-bold text-surface-900 leading-none">ImFhired Assistant</span>
+            <span className="font-bold text-surface-900 leading-none">FiredIn Assistant</span>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-black/5 rounded-full transition-colors text-surface-500 hover:text-surface-900">
             <X className="w-5 h-5" />

@@ -49,7 +49,24 @@ ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS resume_url TEXT,
   ADD COLUMN IF NOT EXISTS parsed_data JSONB,
   ADD COLUMN IF NOT EXISTS experience_years FLOAT DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL;
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  -- Onboarding fields
+  ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS location TEXT,
+  ADD COLUMN IF NOT EXISTS work_status TEXT,
+  ADD COLUMN IF NOT EXISTS current_company TEXT,
+  ADD COLUMN IF NOT EXISTS job_title TEXT,
+  ADD COLUMN IF NOT EXISTS current_salary INTEGER,
+  ADD COLUMN IF NOT EXISTS notice_period TEXT,
+  ADD COLUMN IF NOT EXISTS industry TEXT,
+  ADD COLUMN IF NOT EXISTS department TEXT,
+  ADD COLUMN IF NOT EXISTS highest_qualification TEXT,
+  ADD COLUMN IF NOT EXISTS university TEXT,
+  ADD COLUMN IF NOT EXISTS specialization TEXT,
+  ADD COLUMN IF NOT EXISTS graduation_year INTEGER,
+  ADD COLUMN IF NOT EXISTS preferred_locations TEXT[] DEFAULT ARRAY[]::TEXT[],
+  ADD COLUMN IF NOT EXISTS expected_salary INTEGER,
+  ADD COLUMN IF NOT EXISTS resume_headline TEXT;
 
 UPDATE public.profiles SET full_name = 'User' WHERE full_name IS NULL;
 ALTER TABLE public.profiles ALTER COLUMN full_name SET DEFAULT 'User';

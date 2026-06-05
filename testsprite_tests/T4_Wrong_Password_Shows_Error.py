@@ -46,19 +46,19 @@ async def run_test():
         await elem.wait_for(state="visible", timeout=10000)
         await elem.click()
         
-        # -> Fill the email field with testcandidate@imfhired.com, fill the password with WrongPass999!, click the 'Sign In' button, then look for an error message containing 'Invalid'.
+        # -> Fill the email field with testcandidate@firedin.com, fill the password with WrongPass999!, click the 'Sign In' button, then look for an error message containing 'Invalid'.
         # email input placeholder="you@example.com"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/div/input").nth(0)
         await elem.wait_for(state="visible", timeout=10000)
-        await elem.fill("testcandidate@imfhired.com")
+        await elem.fill("testcandidate@firedin.com")
         
-        # -> Fill the email field with testcandidate@imfhired.com, fill the password with WrongPass999!, click the 'Sign In' button, then look for an error message containing 'Invalid'.
+        # -> Fill the email field with testcandidate@firedin.com, fill the password with WrongPass999!, click the 'Sign In' button, then look for an error message containing 'Invalid'.
         # password input placeholder="••••••••"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/div[2]/div[2]/input").nth(0)
         await elem.wait_for(state="visible", timeout=10000)
         await elem.fill("WrongPass999!")
         
-        # -> Fill the email field with testcandidate@imfhired.com, fill the password with WrongPass999!, click the 'Sign In' button, then look for an error message containing 'Invalid'.
+        # -> Fill the email field with testcandidate@firedin.com, fill the password with WrongPass999!, click the 'Sign In' button, then look for an error message containing 'Invalid'.
         # button "Sign In"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/button").nth(0)
         await elem.wait_for(state="visible", timeout=10000)
@@ -68,7 +68,7 @@ async def run_test():
         # email input placeholder="you@example.com"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/div/input").nth(0)
         await elem.wait_for(state="visible", timeout=10000)
-        await elem.fill("testcandidate@imfhired.com")
+        await elem.fill("testcandidate@firedin.com")
         
         # -> Fill the email and password fields with the wrong credentials, click Sign In, then verify an error message containing the word 'Invalid' is visible.
         # password input placeholder="••••••••"

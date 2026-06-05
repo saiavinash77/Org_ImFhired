@@ -7,8 +7,7 @@ import {
   CheckCircle, AlertCircle, AlertTriangle,
   ChevronUp, ChevronDown, Briefcase
 } from 'lucide-react'
-import axios from 'axios'
-import { getApiUrl } from '@/lib/api'
+import { assessmentsApi } from '@/services/api'
 
 // ── Verdict chip ───────────────────────────────────────────────────────────────
 function VerdictChip({ verdict }: { verdict: string }) {
@@ -69,7 +68,7 @@ function ScoreCell({ score, isTabGuard }: { score?: number; isTabGuard?: boolean
   )
 }
 
-// ── Main ──────────────────────────────────────────────────────────────────────
+// ── Score cell ────────────────────────────────────────────────────────────────
 type SortKey = 'overall_score' | 'created_at'
 type SortDir = 'asc' | 'desc'
 
@@ -85,12 +84,8 @@ export default function AssessmentListPage() {
   useEffect(() => {
     const fetchAssessments = async () => {
       try {
-        const token = localStorage.getItem('imfhired_token')
-        const API_URL = getApiUrl()
-        const res = await axios.get(`${API_URL}/api/v1/assessments/`, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        setAssessments(res.data)
+        const res = await assessmentsApi.list()
+        setAssessments(res)
       } catch (err) {
         console.error('Failed to fetch assessments', err)
       } finally {

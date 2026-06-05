@@ -11,7 +11,8 @@ from app.schemas.schemas import JobCreate, JobResponse, JDGenerationRequest, JDG
 from app.api.v1.endpoints.auth import get_current_user, get_current_user_optional
 
 router = APIRouter()
-openai_client = AsyncOpenAI(api_key=settings.GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
+openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+groq_client = AsyncOpenAI(api_key=settings.GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
 
 
 async def generate_jd_embedding(job: JobCreate) -> list[float]:
@@ -103,7 +104,7 @@ Structure:
 CRITICAL: No markdown formatting. Plain text only.
 """
     try:
-        response = await openai_client.chat.completions.create(
+        response = await groq_client.chat.completions.create(
             model=settings.OPENAI_MODEL,
             messages=[
                 {"role": "system", "content": "You are a professional recruitment assistant."},

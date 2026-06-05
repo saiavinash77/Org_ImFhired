@@ -31,7 +31,7 @@ class MatchingEngine:
     """
     
     def __init__(self):
-        self.client = AsyncOpenAI(api_key=settings.GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
+        self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
         self.embedding_model = "text-embedding-3-small"
 
     async def compute_match_score(
@@ -49,7 +49,7 @@ class MatchingEngine:
         from datetime import datetime
 
         debug_log = os.path.join(
-            tempfile.gettempdir(), f"hireai_matching_debug_{job_id}.log"
+            tempfile.gettempdir(), f"firedin_matching_debug_{job_id}.log"
         )
 
         def log(msg: str) -> None:

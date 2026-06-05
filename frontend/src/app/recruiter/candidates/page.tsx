@@ -27,10 +27,13 @@ function CandidatesContent() {
   const jobIdParam = searchParams.get('job_id')
   const jobTitleParam = searchParams.get('job_title')
 
-  const [search, setSearch] = useState(jobTitleParam || '')
-  const [statusFilter, setStatusFilter] = useState('all')
+  const statusParam = searchParams.get('status') || 'all'
+  const qParam = searchParams.get('q') || ''
+
+  const [search, setSearch] = useState(qParam)
+  const [statusFilter, setStatusFilter] = useState(statusParam === 'shortlisted' ? 'invited' : statusParam)
   const [sortBy, setSortBy] = useState('score')
-  
+  const [jobTitle, setJobTitle] = useState(jobTitleParam || '')
 
   const [candidates, setCandidates] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -38,14 +41,13 @@ function CandidatesContent() {
   useEffect(() => {
     const fetchCandidates = async () => {
       try {
-        const data: any = await applicationsApi.list()
+        const data: any = await applicationsApi.list(jobIdParam ? { job_id: jobIdParam } : {})
         
         const mapped = data.map((d: any) => {
            const name = d.candidate_name || d.parsed_data?.name || d.users?.email || 'Unknown'
            const avatar = name.split(' ').slice(0, 2).map((n: string) => n[0]).join('').toUpperCase() || 'U'
            const rawScore = d.ai_score ?? 0
            let score = rawScore < 1 && rawScore > 0 ? Math.round(rawScore * 100 * 10) / 10 : Math.round(rawScore * 10) / 10
-           // Verification score is the primary signal — this is what recruiters care about
            const verScore = d.verification_score != null ? Math.round(d.verification_score) : null
            const isVerified = d.is_verified || false
            return {
@@ -63,10 +65,15 @@ function CandidatesContent() {
              location: d.jobs?.location || 'Remote',
              exp: d.parsed_data?.total_years_experience ? `${d.parsed_data.total_years_experience} yrs` : '0 yrs',
              appliedAt: d.created_at ? new Date(d.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Just now',
-             scheduledAt: d.interviews?.scheduled_at ? new Date(d.interviews.scheduled_at) : null
+             scheduledAt: d.interviews?.scheduled_at ? new Date(d.interviews.scheduled_at) : null,
+             resumeUrl: d.resume_url || null
            }
         })
         setCandidates(mapped)
+        // Auto-detect job title from fetched results if navigated from a specific job
+        if (jobIdParam && mapped.length > 0 && !jobTitle) {
+          setJobTitle(mapped[0].role)
+        }
       } catch (err) {
         console.error('Failed to fetch applications', err)
       } finally {
@@ -128,18 +135,24 @@ function CandidatesContent() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto animate-fade-in">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-bold font-display text-surface-900">All Candidates</h1>
+          <h1 className="text-2xl font-bold font-display text-surface-900">
+            {jobTitle ? `Applicants — ${jobTitle}` : 'All Candidates'}
+          </h1>
           <p className="text-surface-700 font-medium mt-1">
             {statusFilter === 'all'
-              ? `${searchFiltered.length} candidates across all positions`
+              ? `${searchFiltered.length} candidates${jobTitle ? ` for this position` : ' across all positions'}`
               : `Showing ${filtered.length} of ${searchFiltered.length} candidates · ${statusConfig[statusFilter]?.label || statusFilter}`
             }
           </p>
         </div>
         <div className="flex gap-2">
+          {jobTitle && (
+            <Link href="/recruiter/candidates" className="flex items-center gap-2 text-sm font-semibold text-surface-500 hover:text-surface-800 px-4 py-2.5 rounded-xl transition-colors">
+              ← All Candidates
+            </Link>
+          )}
           <button 
             onClick={exportToCSV}
             className="flex items-center gap-2 text-sm font-semibold text-surface-700 glass-btn hover:bg-white/40 px-4 py-2.5 rounded-xl transition-colors shadow-sm">
@@ -230,7 +243,13 @@ function CandidatesContent() {
                         {c.avatar}
                       </div>
                       <div>
-                        <div className="font-semibold text-surface-900 text-sm">{c.name}</div>
+                        <div className="font-semibold text-surface-900 text-sm">
+                          {c.resumeUrl ? (
+                            <a href={c.resumeUrl} target="_blank" rel="noreferrer" className="hover:text-brand-600 hover:underline">{c.name}</a>
+                          ) : (
+                            c.name
+                          )}
+                        </div>
                         <div className="text-xs text-surface-600 font-medium">{c.location} · {c.exp}</div>
                       </div>
                     </div>
@@ -261,16 +280,22 @@ function CandidatesContent() {
                   <td className="hidden lg:table-cell text-xs text-surface-600 font-medium">{c.appliedAt}</td>
                   <td>
                     <div className="flex items-center gap-2 justify-end">
+                      {c.resumeUrl && (
+                        <a href={c.resumeUrl} target="_blank" rel="noreferrer"
+                          className="flex items-center gap-1 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2.5 py-1.5 rounded-lg transition-colors">
+                          <FileText className="w-3.5 h-3.5" /> Resume
+                        </a>
+                      )}
                       {c.interviewed && (
                         <Link href={`/recruiter/assessments`}
                           className="flex items-center gap-1 text-xs font-semibold text-brand-600 bg-brand-50 hover:bg-brand-100 px-2.5 py-1.5 rounded-lg transition-colors">
                           <Eye className="w-3.5 h-3.5" /> Report
                         </Link>
                       )}
-                      {c.status === 'screening' && (
+                      {(c.status === 'screening' || c.status === 'applied') && (
                         <button
                           onClick={async () => {
-                            const token = localStorage.getItem('imfhired_token')
+                            const token = localStorage.getItem('firedin_token')
                             const API_URL = (await import('@/lib/api')).getApiUrl()
                             const res = await fetch(`${API_URL}/api/v1/applications/${c.id}/invite`, {
                               method: 'POST',
@@ -280,8 +305,8 @@ function CandidatesContent() {
                               setCandidates(prev => prev.map(x => x.id === c.id ? { ...x, status: 'invited' } : x))
                             }
                           }}
-                          className="flex items-center gap-1 text-xs font-semibold text-green-700 bg-green-50 hover:bg-green-100 px-2.5 py-1.5 rounded-lg transition-colors">
-                          <Video className="w-3.5 h-3.5" /> Invite
+                          className="flex items-center gap-1.5 text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 px-3 py-2 rounded-xl transition-all active:scale-95 border border-green-200/50 shadow-sm">
+                          <Video className="w-3.5 h-3.5" /> INVITE
                         </button>
                       )}
                       {!c.interviewed && c.status === 'scheduled' && (() => {

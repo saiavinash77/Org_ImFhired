@@ -23,6 +23,8 @@ export function useProctoring(videoRef: React.RefObject<HTMLVideoElement>, activ
     if (!active) return;
 
     let cancelled = false;
+    let initAttempts = 0;
+    const maxAttempts = 3;
 
     async function initMediaPipe() {
       try {
@@ -52,8 +54,15 @@ export function useProctoring(videoRef: React.RefObject<HTMLVideoElement>, activ
         requestRef.current = requestAnimationFrame(detect);
       } catch (err) {
         console.error('Proctoring init failed:', err);
-        // Non-fatal — don't block the interview
-        setStatus({ facesDetected: 0, isWarning: false, message: 'Camera monitoring unavailable' });
+        initAttempts++;
+        
+        if (initAttempts < maxAttempts && !cancelled) {
+          // Retry after delay
+          setTimeout(() => initMediaPipe(), 2000);
+        } else {
+          // Non-fatal — don't block the interview
+          setStatus({ facesDetected: 0, isWarning: false, message: 'Camera monitoring unavailable' });
+        }
       }
     }
 
@@ -85,8 +94,9 @@ export function useProctoring(videoRef: React.RefObject<HTMLVideoElement>, activ
         }
 
         setStatus({ facesDetected: faceCount, isWarning: warning, message: msg });
-      } catch {
+      } catch (err) {
         // Ignore per-frame errors
+        console.debug('[Proctoring] Detection error:', err);
       }
 
       if (!cancelled) requestRef.current = requestAnimationFrame(detect);

@@ -5,15 +5,14 @@ export const dynamic = 'force-dynamic'
 import { useState, useCallback, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { useRouter, useSearchParams } from 'next/navigation'
-import axios from 'axios'
 import Link from 'next/link'
 import Image from 'next/image'
 import { 
   Brain, Upload, FileText, CheckCircle, ArrowRight,
   Loader2, X, AlertCircle, Briefcase, MapPin,
-  DollarSign, Clock, Users, Calendar
+  DollarSign, Clock, Users, Calendar, Sparkles
 } from 'lucide-react'
-import { getApiUrl } from '@/lib/api'
+import { profilesApi, jobsApi, applicationsApi, verificationApi } from '@/services/api'
 import toast from 'react-hot-toast'
 import AuthGuard from '@/components/AuthGuard'
 
@@ -45,13 +44,8 @@ function ApplyContent() {
       }
 
       try {
-        const API_URL = getApiUrl();
-        const response = await fetch(`${API_URL}/api/v1/jobs/${jobId}`)
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-        setJob(data);
+        const data = await jobsApi.get(jobId)
+        setJob(data)
       } catch (err) {
         console.error('Failed to fetch job details', err)
       }
@@ -60,17 +54,13 @@ function ApplyContent() {
 
     // ── Pre-fill if logged in as candidate; block recruiters ──
     const fetchProfile = async () => {
-      const token = localStorage.getItem('imfhired_token')
+      const token = localStorage.getItem('firedin_token')
       if (token) {
         try {
-          const API_URL = getApiUrl()
-          const res = await axios.get(`${API_URL}/api/v1/profiles/me`, {
-            headers: { Authorization: `Bearer ${token}` }
-          })
-          const profileData = res.data
+          const profileData = await profilesApi.get()
 
           // Block recruiters/admins — they should not be applying for jobs
-          const role = profileData?.role || localStorage.getItem('imfhired_role')
+          const role = profileData?.role || localStorage.getItem('firedin_role')
           if (role === 'recruiter' || role === 'admin') {
             // Don't pre-fill recruiter details; just leave the form empty
             // so a real candidate can fill it manually
@@ -78,10 +68,10 @@ function ApplyContent() {
           }
 
           setProfile(profileData)
-          if (profileData) {
+          if (profileData?.profile) {
             setForm(prev => ({ 
               ...prev, 
-              name: profileData.full_name || prev.name, 
+              name: profileData.profile?.full_name || prev.name, 
               email: profileData.email || prev.email 
             }))
           }
@@ -94,17 +84,14 @@ function ApplyContent() {
 
     // ── Verification status (candidate-side gate) ─────────────────────────
     const fetchVerification = async () => {
-      const token = localStorage.getItem('imfhired_token')
+      const token = localStorage.getItem('firedin_token')
       if (!token) {
         setVerificationLoading(false)
         return
       }
       try {
-        const API_URL = getApiUrl()
-        const res = await axios.get(`${API_URL}/api/v1/verification/status`, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        setVerification(res.data)
+        const res = await verificationApi.status()
+        setVerification(res)
       } catch (e) {
         // If this fails, backend will still enforce the verification gate.
         console.error('Failed to load verification status', e)
@@ -114,6 +101,7 @@ function ApplyContent() {
     }
     fetchVerification()
   }, [searchParams, router])
+
 
   const onDrop = useCallback((accepted: File[]) => {
     if (accepted.length > 0) {
@@ -133,76 +121,6 @@ function ApplyContent() {
     if (!file && !useSavedResume) return toast.error('Please upload your resume or select your saved profile resume.')
     if (!form.name || !form.email) return toast.error('Please fill in your details.')
 
-    // If user isn't verified yet, divert to one-time verification first.
-    const isVerified = verification?.verified === true
-    if (verificationLoading) {
-      toast.error('Checking your verification status. Please try again in a moment.')
-      return
-    }
-    const token = typeof window !== 'undefined' ? localStorage.getItem('imfhired_token') : null
-    if (!isVerified) {
-      if (!token) {
-        toast.error('Please log in again to complete verification.')
-        setStep('upload')
-        return
-      }
-
-      setLoading(true)
-      setStep('processing')
-      try {
-        const API_URL = getApiUrl()
-
-        // Verification service requires `profiles.resume_url` to exist.
-        if (!(verification?.has_resume === true)) {
-          if (!file) {
-            toast.error('Upload a resume to complete verification.')
-            setStep('upload')
-            return
-          }
-
-          const resumeFormData = new FormData()
-          resumeFormData.append('resume', file)
-          await axios.post(`${API_URL}/api/v1/profiles/me/resume`, resumeFormData, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'multipart/form-data'
-            }
-          })
-        }
-
-        const status = verification?.status
-        const interviewId = verification?.interview_id
-
-        // If the verification is already scheduled/in-progress, just route to the same room.
-        // (Prevents creating multiple verification sessions for a single candidate.)
-        if (interviewId && (status === 'interview_scheduled' || status === 'in_progress')) {
-          router.push(`/candidate/verify/${interviewId}`)
-          return
-        }
-
-        // Candidate can retake if they previously failed; recruiters cannot trigger any retake.
-        const route = status === 'failed' ? 'retake' : 'start'
-        const startRes = await axios.post(
-          `${API_URL}/api/v1/verification/${route}`,
-          {},
-          { headers: { Authorization: `Bearer ${token}` } }
-        )
-        const { room_url } = startRes.data || {}
-        if (room_url) return router.push(room_url)
-
-        toast.error('Verification could not be started. Please try again.')
-        setStep('upload')
-      } catch (err: any) {
-        console.error(err)
-        const msg = err.response?.data?.detail || 'Please complete verification before applying.'
-        toast.error(msg)
-        setStep('upload')
-      } finally {
-        setLoading(false)
-      }
-      return
-    }
-
     setLoading(true)
     setStep('processing')
     
@@ -219,18 +137,15 @@ function ApplyContent() {
         formData.append('resume', file)
       }
 
-      const API_URL = getApiUrl();
-      const response = await axios.post(`${API_URL}/api/v1/applications/apply`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      })
+      const response = await applicationsApi.apply(formData)
 
-      const { application_id, interview_invited } = response.data
+      const { application_id, interview_invited } = response
       setIsInvited(interview_invited)
       setStep('done')
       localStorage.setItem('last_app_id', application_id)
     } catch (err: any) {
       console.error(err)
-      const msg = err.response?.data?.detail || 'Submission failed. Please try again.'
+      const msg = err.message || 'Submission failed. Please try again.'
       toast.error(msg)
       setStep('upload')
     } finally {
@@ -239,19 +154,28 @@ function ApplyContent() {
   }
 
   return (
-    <div className="min-h-screen" style={{ background: '#f8fafc' }}>
-      {/* Navbar */}
-      <nav className="h-[68px] bg-white border-b border-surface-100 flex items-center px-6 sticky top-0 z-30" style={{ boxShadow: '0 1px 0 #f1f5f9' }}>
-        <Link href="/" className="flex items-center gap-2.5 group">
-          <Image src="/imfhired-logo.png" alt="ImFhired" width={38} height={38} priority className="rounded-xl object-cover logo-glow group-hover:scale-105 transition-transform" />
-          <span className="text-lg font-bold text-surface-900 tracking-tight">ImFhired</span>
-        </Link>
-        <div className="ml-auto text-xs text-surface-500 font-medium">
-           <Link href="/candidate/jobs" className="hover:text-brand-600 transition-colors">Browse Jobs</Link>
+    <div className="min-h-screen bg-surface-50 relative overflow-hidden text-surface-900">
+      {/* Abstract Background Orbs for Soft UI */}
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-brand-300/20 rounded-full blur-[100px] pointer-events-none animate-pulse-slow" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-300/20 rounded-full blur-[100px] pointer-events-none animate-float" />
+      
+      {/* Premium Navbar */}
+      <nav className="h-[72px] bg-white/60 backdrop-blur-xl border-b border-white/40 flex items-center px-6 sticky top-0 z-30 shadow-glass">
+        <div className="max-w-5xl mx-auto w-full flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2.5 group">
+            <Image src="/firedin-logo.png" alt="FiredIn" width={40} height={40} priority className="rounded-xl object-cover shadow-glow group-hover:scale-105 transition-transform duration-300" />
+            <div>
+               <span className="text-xl font-black font-display text-surface-900 tracking-tight block leading-none">FiredIn</span>
+               <span className="text-[10px] font-bold text-brand-600 uppercase tracking-widest">Candidate</span>
+            </div>
+          </Link>
+          <div className="text-xs text-surface-500 font-bold uppercase tracking-wider">
+             <Link href="/candidate/jobs" className="hover:text-brand-600 transition-colors bg-white/50 px-4 py-2 rounded-full border border-white hover:shadow-sm">Browse Jobs</Link>
+          </div>
         </div>
       </nav>
 
-      <div className="max-w-5xl mx-auto px-6 py-12">
+      <div className="max-w-5xl mx-auto px-6 py-12 relative z-10">
         {step !== 'done' && (
           <div className="mb-12">
             <div className="flex items-center justify-between mb-8 max-w-sm mx-auto overflow-hidden">
@@ -275,7 +199,10 @@ function ApplyContent() {
           </div>
         )}
 
-        <div className="bg-white rounded-3xl border border-surface-100 shadow-xl shadow-surface-200/50 overflow-hidden min-h-[500px] flex flex-col justify-center">
+        <div className="bg-white/70 backdrop-blur-xl rounded-4xl border border-white/50 shadow-glass hover:shadow-glass-hover transition-all duration-500 overflow-hidden min-h-[500px] flex flex-col justify-center relative">
+          {/* Subtle inner gradient */}
+          <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent pointer-events-none" />
+          
           {step === 'details' && (
             <div className="p-8 md:p-12 animate-fade-in text-center">
               <div className="max-w-2xl mx-auto">
@@ -287,21 +214,21 @@ function ApplyContent() {
                 <p className="text-surface-600 font-medium mb-8">{job?.department || 'Engineering'}</p>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-10">
-                  <div className="bg-surface-50 p-4 rounded-2xl border border-surface-100 text-left">
-                    <div className="text-[10px] font-bold text-surface-400 uppercase tracking-widest mb-1">Salary</div>
-                    <div className="text-sm font-bold text-surface-900">₹{job?.salary_min ? job.salary_min : '20'}–{job?.salary_max ? job.salary_max : '35'} LPA</div>
+                  <div className="bg-white/50 backdrop-blur-sm p-5 rounded-3xl border border-white shadow-sm hover:shadow-md transition-shadow text-left group">
+                    <div className="text-[10px] font-black text-surface-400 uppercase tracking-widest mb-1 group-hover:text-brand-500 transition-colors">Salary</div>
+                    <div className="text-base font-black text-surface-900">₹{job?.salary_min ? job.salary_min : '20'}–{job?.salary_max ? job.salary_max : '35'} <span className="text-xs font-bold text-surface-500">LPA</span></div>
                   </div>
-                  <div className="bg-surface-50 p-4 rounded-2xl border border-surface-100 text-left">
-                    <div className="text-[10px] font-bold text-surface-400 uppercase tracking-widest mb-1">Exp. Required</div>
-                    <div className="text-sm font-bold text-surface-900">{job?.experience_min || '4'}–{job?.experience_max || '8'} Years</div>
+                  <div className="bg-white/50 backdrop-blur-sm p-5 rounded-3xl border border-white shadow-sm hover:shadow-md transition-shadow text-left group">
+                    <div className="text-[10px] font-black text-surface-400 uppercase tracking-widest mb-1 group-hover:text-brand-500 transition-colors">Experience</div>
+                    <div className="text-base font-black text-surface-900">{job?.experience_min || '4'}–{job?.experience_max || '8'} <span className="text-xs font-bold text-surface-500">Yrs</span></div>
                   </div>
-                  <div className="bg-surface-50 p-4 rounded-2xl border border-surface-100 text-left">
-                    <div className="text-[10px] font-bold text-surface-400 uppercase tracking-widest mb-1">Location</div>
-                    <div className="text-sm font-bold text-surface-900">{job?.location || 'Remote'}</div>
+                  <div className="bg-white/50 backdrop-blur-sm p-5 rounded-3xl border border-white shadow-sm hover:shadow-md transition-shadow text-left group">
+                    <div className="text-[10px] font-black text-surface-400 uppercase tracking-widest mb-1 group-hover:text-brand-500 transition-colors">Location</div>
+                    <div className="text-base font-black text-surface-900 flex items-center gap-1"><MapPin className="w-3.5 h-3.5 text-brand-500" /> {job?.location || 'Remote'}</div>
                   </div>
-                  <div className="bg-surface-50 p-4 rounded-2xl border border-surface-100 text-left">
-                    <div className="text-[10px] font-bold text-surface-400 uppercase tracking-widest mb-1">Type</div>
-                    <div className="text-sm font-bold text-surface-900 capitalize">{job?.job_type?.replace('_', ' ') || 'Full-time'}</div>
+                  <div className="bg-white/50 backdrop-blur-sm p-5 rounded-3xl border border-white shadow-sm hover:shadow-md transition-shadow text-left group">
+                    <div className="text-[10px] font-black text-surface-400 uppercase tracking-widest mb-1 group-hover:text-brand-500 transition-colors">Type</div>
+                    <div className="text-base font-black text-surface-900 capitalize">{job?.job_type?.replace('_', ' ') || 'Full-time'}</div>
                   </div>
                 </div>
 
@@ -342,23 +269,7 @@ function ApplyContent() {
                 <h2 className="text-2xl font-bold text-surface-900 mb-2">Upload Your Resume</h2>
                 <p className="text-surface-500 text-sm mb-8">PDF or DOCX allowed. Max 5MB.</p>
 
-                {verificationLoading === false && verification?.verified === false && (
-                  <div className="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-left flex items-start gap-3">
-                    <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                    <div>
-                      <div className="text-sm font-bold text-amber-900">
-                        {verification?.status === 'failed'
-                          ? 'Retake verification to apply'
-                          : 'Verification required before applying'}
-                      </div>
-                      <div className="text-xs text-amber-700 mt-1 leading-relaxed">
-                        {verification?.status === 'failed'
-                          ? 'You can complete your one-time verification again to qualify.'
-                          : 'Complete your one-time verification interview once, then you can apply.'}
-                      </div>
-                    </div>
-                  </div>
-                )}
+
 
                 {profile?.resume_url && (
                   <div 
@@ -405,15 +316,9 @@ function ApplyContent() {
                   <button 
                     onClick={handleSubmit}
                     disabled={(!file && !useSavedResume) || verificationLoading}
-                    className="bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white font-bold px-8 py-3.5 rounded-xl transition-all shadow-lg"
+                    className="bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white font-black px-8 py-3.5 rounded-2xl transition-all shadow-glow hover:shadow-glow-lg flex items-center gap-2 transform hover:-translate-y-0.5 active:translate-y-0"
                   >
-                    {verificationLoading
-                      ? 'Submit Application'
-                      : verification?.verified === false
-                        ? verification?.status === 'failed'
-                          ? 'Retake Verification & Apply'
-                          : 'Complete Verification & Apply'
-                        : 'Submit Application'}
+                    Submit Application <Sparkles className="w-4 h-4" />
                   </button>
                 </div>
               </div>

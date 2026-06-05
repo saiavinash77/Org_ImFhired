@@ -4,8 +4,6 @@ export const dynamic = 'force-dynamic'
 
 import { useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import axios from 'axios'
-import { getApiUrl } from '@/lib/api'
 import toast from 'react-hot-toast'
 import { Loader2 } from 'lucide-react'
 

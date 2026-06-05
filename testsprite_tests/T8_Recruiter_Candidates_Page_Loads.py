@@ -56,7 +56,7 @@ async def run_test():
         # email input placeholder="you@example.com"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/div/input").nth(0)
         await elem.wait_for(state="visible", timeout=10000)
-        await elem.fill("testrecruiter@imfhired.com")
+        await elem.fill("testrecruiter@firedin.com")
         
         # -> Fill the email and password fields with recruiter credentials and submit the login form (click Sign In).
         # password input placeholder="••••••••"
@@ -80,7 +80,7 @@ async def run_test():
         # email input placeholder="you@example.com"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/div/input").nth(0)
         await elem.wait_for(state="visible", timeout=10000)
-        await elem.fill("testrecruiter@imfhired.com")
+        await elem.fill("testrecruiter@firedin.com")
         
         # -> Fill the email and password fields with recruiter credentials and click the 'Sign In' button.
         # button "Sign In"
@@ -100,19 +100,19 @@ async def run_test():
         await elem.wait_for(state="visible", timeout=10000)
         await elem.click()
         
-        # -> Fill the email field with testrecruiter@imfhired.com, fill the password with Test1234!, then click the 'Sign In' button.
+        # -> Fill the email field with testrecruiter@firedin.com, fill the password with Test1234!, then click the 'Sign In' button.
         # email input placeholder="you@example.com"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/div/input").nth(0)
         await elem.wait_for(state="visible", timeout=10000)
-        await elem.fill("testrecruiter@imfhired.com")
+        await elem.fill("testrecruiter@firedin.com")
         
-        # -> Fill the email field with testrecruiter@imfhired.com, fill the password with Test1234!, then click the 'Sign In' button.
+        # -> Fill the email field with testrecruiter@firedin.com, fill the password with Test1234!, then click the 'Sign In' button.
         # password input placeholder="••••••••"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/div[2]/div[2]/input").nth(0)
         await elem.wait_for(state="visible", timeout=10000)
         await elem.fill("Test1234!")
         
-        # -> Fill the email field with testrecruiter@imfhired.com, fill the password with Test1234!, then click the 'Sign In' button.
+        # -> Fill the email field with testrecruiter@firedin.com, fill the password with Test1234!, then click the 'Sign In' button.
         # button "Sign In"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/button").nth(0)
         await elem.wait_for(state="visible", timeout=10000)

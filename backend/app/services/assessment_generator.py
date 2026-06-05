@@ -621,7 +621,7 @@ class AssessmentGeneratorService:
             return f"{int(v)}/100" if v is not None else "N/A"
 
         return f"""
-ImFhired Assessment Report — {candidate_name}
+FiredIn Assessment Report — {candidate_name}
 Role: {job_title}
 Session Status: {status_label}
 
@@ -671,14 +671,26 @@ async def generate_assessment(
     proctoring_logs = proctoring_logs or []
 
     try:
-        # ── Deduplicate ───────────────────────────────────────────────────────
-        async with pool.acquire() as conn:
-            existing = await conn.fetchrow(
-                "SELECT id FROM assessments WHERE interview_id = $1", interview_id
-            )
-        if existing:
-            logger.info(f"Assessment already exists for {interview_id}; skipping.")
+        # ── Validate interview_id ───────────────────────────────────────────
+        try:
+            interview_uuid = uuid.UUID(interview_id) if isinstance(interview_id, str) else interview_id
+        except (ValueError, AttributeError) as e:
+            logger.error(f"Invalid interview_id format: {interview_id} — {e}")
             return
+
+        # ── Deduplicate ───────────────────────────────────────────────────────
+        try:
+            async with pool.acquire() as conn:
+                existing = await conn.fetchrow(
+                    "SELECT id FROM assessments WHERE interview_id = $1", interview_uuid
+                )
+            if existing:
+                logger.info(f"Assessment already exists for {interview_id}; skipping.")
+                return
+        except Exception as e:
+            logger.error(f"Error checking for existing assessment: {e}");
+            # Don't return here — try to proceed anyway
+            pass
 
         # ── Fetch data ────────────────────────────────────────────────────────
         if is_verification:
@@ -691,7 +703,7 @@ async def generate_assessment(
                     JOIN users u ON u.id = vi.candidate_id
                     WHERE vi.id = $1
                     """,
-                    interview_id,
+                    interview_uuid,
                 )
             if not row:
                 logger.error(f"Verification interview {interview_id} not found")
@@ -737,7 +749,7 @@ async def generate_assessment(
                     JOIN users u_rec ON u_rec.id = j.recruiter_id
                     WHERE i.id = $1
                     """,
-                    interview_id,
+                    interview_uuid,
                 )
             if not row:
                 logger.error(f"Interview {interview_id} not found")
@@ -794,58 +806,73 @@ async def generate_assessment(
         assessment_id = str(uuid.uuid4())
 
         # ── Save to RDS ───────────────────────────────────────────────────────
-        async with pool.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO assessments (
-                    id, interview_id, overall_score, technical_score, behavioral_score,
-                    communication_score, cultural_fit_score, problem_solving_score,
-                    expected_salary, negotiated_salary, verdict, verdict_reasoning,
-                    key_strengths, areas_of_improvement, round_summaries, detailed_report
-                ) VALUES (
-                    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16
-                )
-                ON CONFLICT (interview_id) DO NOTHING
-                """,
-                assessment_id,
-                interview_id,
-                overall_score,
-                assessment_data.get("technical_score"),
-                assessment_data.get("behavioral_score"),
-                assessment_data.get("communication_score"),
-                assessment_data.get("cultural_fit_score"),
-                assessment_data.get("problem_solving_score"),
-                assessment_data.get("expected_salary"),
-                assessment_data.get("negotiated_salary"),
-                verdict,
-                assessment_data.get("verdict_reasoning", ""),
-                assessment_data.get("key_strengths", []),
-                assessment_data.get("areas_of_improvement", []),
-                json.dumps(assessment_data.get("round_summaries", [])),
-                json.dumps(assessment_data),
-            )
-
-            # Update interview status
-            iv_status = "cancelled" if termination_reason == "tab_guard" else "completed"
-            await conn.execute(
-                "UPDATE interviews SET status = $1 WHERE id = $2",
-                iv_status, interview_id,
-            )
-
-            if is_verification:
-                # Save verification result to profile
-                from app.services.verification import save_verification_result
-                await save_verification_result(
-                    interview_id=interview_id,
-                    candidate_id=candidate_id,
-                    overall_score=overall_score,
-                    assessment=assessment_data,
-                )
-            elif app_id:
+        try:
+            async with pool.acquire() as conn:
                 await conn.execute(
-                    "UPDATE applications SET status = $1 WHERE id = $2",
-                    ApplicationStatus.INTERVIEWED.value, app_id,
+                    """
+                    INSERT INTO assessments (
+                        id, interview_id, overall_score, technical_score, behavioral_score,
+                        communication_score, cultural_fit_score, problem_solving_score,
+                        expected_salary, negotiated_salary, verdict, verdict_reasoning,
+                        key_strengths, areas_of_improvement, round_summaries, detailed_report
+                    ) VALUES (
+                        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16
+                    )
+                    ON CONFLICT (interview_id) DO NOTHING
+                    """,
+                    uuid.UUID(assessment_id),
+                    interview_uuid,
+                    overall_score,
+                    assessment_data.get("technical_score"),
+                    assessment_data.get("behavioral_score"),
+                    assessment_data.get("communication_score"),
+                    assessment_data.get("cultural_fit_score"),
+                    assessment_data.get("problem_solving_score"),
+                    assessment_data.get("expected_salary"),
+                    assessment_data.get("negotiated_salary"),
+                    verdict,
+                    assessment_data.get("verdict_reasoning", ""),
+                    assessment_data.get("key_strengths", []),
+                    assessment_data.get("areas_of_improvement", []),
+                    json.dumps(assessment_data.get("round_summaries", [])),
+                    json.dumps(assessment_data),
                 )
+
+                # Update interview status
+                iv_status = "cancelled" if termination_reason == "tab_guard" else "completed"
+                await conn.execute(
+                    "UPDATE interviews SET status = $1 WHERE id = $2",
+                    iv_status, interview_uuid,
+                )
+
+                if is_verification:
+                    # Save verification result to profile
+                    from app.services.verification import save_verification_result
+                    await save_verification_result(
+                        interview_id=interview_id,
+                        candidate_id=candidate_id,
+                        overall_score=overall_score,
+                        assessment=assessment_data,
+                    )
+                elif app_id:
+                    await conn.execute(
+                        "UPDATE applications SET status = $1 WHERE id = $2",
+                        ApplicationStatus.INTERVIEWED.value, app_id,
+                    )
+            logger.info(f"Assessment saved to DB for {interview_id}")
+            
+            # Automatically trigger composite search vector update!
+            try:
+                from app.services.profile_vector_service import get_profile_vector_service
+                vector_svc = get_profile_vector_service()
+                await vector_svc.update_candidate_embedding(candidate_id)
+            except Exception as ex:
+                logger.error(f"Failed to update candidate search embedding on assessment save: {ex}")
+        except Exception as db_err:
+            logger.error(f"Database save failed for {interview_id}: {db_err}")
+            import traceback
+            traceback.print_exc()
+            raise
 
         # ── Notify recruiter (job interviews only) ────────────────────────────
         if recruiter_email and not is_verification:

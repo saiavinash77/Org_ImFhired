@@ -38,7 +38,7 @@ def _format_phase_template(template: str, **kwargs: Any) -> str:
 
 PHASE_PROMPTS = {
     InterviewPhase.INTRO: """
-You are ImFhired, a professional AI interviewer conducting the INTRODUCTION ROUND.
+You are FiredIn, a professional AI interviewer conducting the INTRODUCTION ROUND.
 
 Job Title: {job_title}
 Job Description (excerpt): {job_description}
@@ -55,7 +55,7 @@ Tone: Professional, warm, and concise. One question at a time.
 """,
 
     InterviewPhase.TECHNICAL: """
-You are ImFhired conducting the TECHNICAL ASSESSMENT ROUND.
+You are FiredIn conducting the TECHNICAL ASSESSMENT ROUND.
 
 Role: {job_title}
 Job Description (excerpt — BINDING for what to test): {job_description}
@@ -82,7 +82,7 @@ Question format: One clear, specific question at a time. No compound/multi-part 
 """,
 
     InterviewPhase.BEHAVIORAL: """
-You are ImFhired conducting the BEHAVIOURAL ROUND.
+You are FiredIn conducting the BEHAVIOURAL ROUND.
 
 Role: {job_title}
 Job Description (excerpt): {job_description}
@@ -107,7 +107,7 @@ Rules:
 """,
 
     InterviewPhase.SALARY: """
-You are ImFhired conducting the OFFER & COMPENSATION DISCUSSION phase.
+You are FiredIn conducting the OFFER & COMPENSATION DISCUSSION phase.
 
 Role: {job_title}
 {salary_context}
@@ -458,7 +458,7 @@ Transcript:
 """
         try:
             resp = await client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=settings.JUDGE_MODEL,
                 messages=[{"role": "user", "content": check_prompt}],
                 max_tokens=5,
                 temperature=0,

@@ -2,13 +2,14 @@
 
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
-import axios from 'axios'
 import {
   CheckCircle, TrendingUp, Loader2, Brain,
   Briefcase, Clock, Home, ChevronRight,
   Star, ArrowRight, Sparkles, AlertCircle,
   AlertTriangle, Award, MessageSquare, Target, Zap, RefreshCw
 } from 'lucide-react'
+import axios from 'axios'
+import { assessmentsApi } from '@/services/api'
 import { getApiUrl } from '@/lib/api'
 
 // ── Animated Score Ring ────────────────────────────────────────────────────────
@@ -209,12 +210,7 @@ export default function CandidateScorecardPage({ params }: { params: { interview
 
     const fetchAssessment = async (attempt = 0) => {
       try {
-        const token = localStorage.getItem('imfhired_token') || localStorage.getItem('sb-access-token') || ''
-        const headers: Record<string, string> = {}
-        if (token) headers['Authorization'] = `Bearer ${token}`
-        const res = await axios.get(`${getApiUrl()}/api/v1/assessments/${params.interviewId}`, { headers })
-
-        const data = res.data
+        const data = await assessmentsApi.get(params.interviewId)
         const dr = data.detailed_report || {}
         const totalTurns = dr.total_turns_assessed || dr.transcript_turns || 0
         const roundsDone = dr.rounds_completed || []
@@ -223,19 +219,21 @@ export default function CandidateScorecardPage({ params }: { params: { interview
         // If backend returned 200 but data is clearly empty/unprocessed, keep polling
         // This handles the race condition where scorecard is queued but not yet generated
         const isEmpty = overallScore === 0 && totalTurns === 0 && roundsDone.length === 0
-        if (isEmpty && attempt < 12) {
+        if (isEmpty && attempt < 20) {
           setPollingCount(attempt + 1)
-          timeout = setTimeout(() => fetchAssessment(attempt + 1), 4000)
+          // Faster polling: 2 seconds instead of 4-5
+          timeout = setTimeout(() => fetchAssessment(attempt + 1), 2000)
           return
         }
 
         if (!cancelled) { setAssessment(data); setTimeout(() => setHeroVisible(true), 100) }
       } catch (err: any) {
         if (cancelled) return
-        const status = err.response?.status
-        if (status === 202 && attempt < 12) {
+        const status = err.status
+        if (status === 202 && attempt < 20) {
           setPollingCount(attempt + 1)
-          timeout = setTimeout(() => fetchAssessment(attempt + 1), 5000)
+          // Faster polling for 202 responses
+          timeout = setTimeout(() => fetchAssessment(attempt + 1), 2000)
           return
         } else if (status === 202) setError('Taking longer than expected. Please check back in a few minutes.')
         else if (status === 404) setError('Your scorecard is still being generated. Please try again in a moment.')
@@ -270,7 +268,7 @@ export default function CandidateScorecardPage({ params }: { params: { interview
         )}
       </div>
       {/* Progress steps */}
-      <div className="flex flex-col gap-3 w-full max-w-xs">
+      <div className="flex flex-col gap-3 w-full max-w-xs mb-8">
         {[
           { label: 'Analysing transcript', done: pollingCount >= 1 },
           { label: 'Scoring each dimension', done: pollingCount >= 2 },
@@ -286,6 +284,33 @@ export default function CandidateScorecardPage({ params }: { params: { interview
           </div>
         ))}
       </div>
+
+      {/* Manual trigger button if polling has taken too long */}
+      {pollingCount >= 8 && (
+        <button onClick={() => {
+          setRegenerating(true)
+          assessmentsApi.triggerAssessment(params.interviewId)
+            .then(() => {
+              setTimeout(() => {
+                setRegenerating(false)
+                handleRetry()
+              }, 15000)
+            })
+            .catch(() => {
+              setRegenerating(false)
+              setError('Failed to trigger assessment. Please try again.')
+              setLoading(false)
+            })
+        }}
+          disabled={regenerating}
+          className="px-6 py-3 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2">
+          {regenerating ? (
+            <><Loader2 className="w-4 h-4 animate-spin" /> Triggering...</>
+          ) : (
+            <><RefreshCw className="w-4 h-4" /> Manually Trigger Assessment</>
+          )}
+        </button>
+      )}
     </div>
   )
 
@@ -340,7 +365,7 @@ export default function CandidateScorecardPage({ params }: { params: { interview
   const handleRegenerate = async () => {
     setRegenerating(true)
     try {
-      const token = localStorage.getItem('imfhired_token') || localStorage.getItem('sb-access-token') || ''
+      const token = localStorage.getItem('firedin_token') || localStorage.getItem('sb-access-token') || ''
       const headers: Record<string, string> = {}
       if (token) headers['Authorization'] = `Bearer ${token}`
       await axios.post(`${getApiUrl()}/api/v1/assessments/${params.interviewId}/regenerate`, {}, { headers })
@@ -365,7 +390,7 @@ export default function CandidateScorecardPage({ params }: { params: { interview
             <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center">
               <Brain className="w-4 h-4 text-white" />
             </div>
-            <span className="text-white font-black text-sm tracking-wider">ImFhired</span>
+            <span className="text-white font-black text-sm tracking-wider">FiredIn</span>
           </div>
           <Link href="/candidate/dashboard" className="text-white/40 hover:text-white text-sm font-medium transition-colors">
             Dashboard
@@ -436,7 +461,7 @@ export default function CandidateScorecardPage({ params }: { params: { interview
               <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center">
                 <Brain className="w-4 h-4 text-white" />
               </div>
-              <span className="text-white font-black text-sm tracking-wider">ImFhired</span>
+              <span className="text-white font-black text-sm tracking-wider">FiredIn</span>
             </div>
             <Link href="/candidate/dashboard" className="text-white/40 hover:text-white text-sm font-medium transition-colors flex items-center gap-1">
               Dashboard <ChevronRight className="w-4 h-4" />

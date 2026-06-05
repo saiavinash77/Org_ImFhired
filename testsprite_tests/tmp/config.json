@@ -4,8 +4,8 @@
   "scope": "codebase",
   "localEndpoint": "http://localhost:3002",
   "executionArgs": {
-    "projectName": "ImFhired",
-    "projectPath": "c:\\Users\\sai avinash\\OneDrive\\Desktop\\All-Vibecoded-Projects\\hireai\\-AI-Interviewer-Skill-Assessment-Platform",
+    "projectName": "FiredIn",
+    "projectPath": "c:\\Users\\sai avinash\\OneDrive\\Desktop\\All-Vibecoded-Projects\\firedin\\-AI-Interviewer-Skill-Assessment-Platform",
     "testIds": [
       "T1",
       "T2",
@@ -17,7 +17,7 @@
       "T8",
       "T9"
     ],
-    "additionalInstruction": "Test the ImFhired app on http://localhost:3002. Credentials: candidate=testcandidate@imfhired.com/Test1234!, recruiter=testrecruiter@imfhired.com/Test1234!. T1=Landing page has FIRED/HIRED text. T2=Candidate login redirects to /candidate. T3=Recruiter login shows Jobs in sidebar. T4=Wrong password shows error. T5=Register page has Job Seeker tab. T6=Forgot password page loads. T7=Recruiter /recruiter/jobs loads. T8=Recruiter /recruiter/candidates loads. T9=Candidate /candidate/jobs shows lock icon for unverified.",
+    "additionalInstruction": "Test the FiredIn app on http://localhost:3002. Credentials: candidate=testcandidate@firedin.com/Test1234!, recruiter=testrecruiter@firedin.com/Test1234!. T1=Landing page has FIRED/HIRED text. T2=Candidate login redirects to /candidate. T3=Recruiter login shows Jobs in sidebar. T4=Wrong password shows error. T5=Register page has Job Seeker tab. T6=Forgot password page loads. T7=Recruiter /recruiter/jobs loads. T8=Recruiter /recruiter/candidates loads. T9=Candidate /candidate/jobs shows lock icon for unverified.",
     "envs": {
       "API_KEY": "sk-user-G727e9swV4IdFiKaJEaInko2Nm85Gnvz6Jl11pArT-bGeqgyD36m4q0jUoBoixHWFXrs32Oigd0_tqHUN6xO7opvuRTeGdheoWIsvJSPTJcVWePgsxLGGRRfw-hmP2B1iGg"
     }

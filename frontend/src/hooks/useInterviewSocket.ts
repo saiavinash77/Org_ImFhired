@@ -36,6 +36,7 @@ interface InterviewSocketState {
 export function useInterviewSocket(interviewId: string, token: string) {
   const wsRef = useRef<WebSocket | null>(null)
   const pingRef = useRef<ReturnType<typeof setInterval>>()
+  const endedRef = useRef(false)
 
   const [state, setState] = useState<InterviewSocketState>({
     connected: false,
@@ -110,6 +111,7 @@ export function useInterviewSocket(interviewId: string, token: string) {
             break
 
           case 'interview_ended':
+            endedRef.current = true
             setState(s => ({ ...s, ended: true }))
             ws.close()
             break
@@ -137,11 +139,11 @@ export function useInterviewSocket(interviewId: string, token: string) {
       setState(s => ({ ...s, connected: false, connecting: false }))
 
       // Auto-reconnect unless deliberately closed or ended
-      if (!event.wasClean && !state.ended) {
+      if (!event.wasClean && !endedRef.current) {
         setTimeout(() => connect(), 3000)
       }
     }
-  }, [interviewId, token, send, state.ended])
+  }, [interviewId, token, send])
 
   /**
    * Send candidate's transcript to the AI.
@@ -172,13 +174,14 @@ export function useInterviewSocket(interviewId: string, token: string) {
 
   // Connect on mount
   useEffect(() => {
+    endedRef.current = state.ended
     connect()
     return () => {
       clearInterval(pingRef.current)
       wsRef.current?.close()
       wsRef.current = null
     }
-  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [connect, state.ended])
 
   return {
     ...state,

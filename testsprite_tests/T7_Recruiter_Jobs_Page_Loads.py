@@ -56,7 +56,7 @@ async def run_test():
         # email input placeholder="you@example.com"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/div/input").nth(0)
         await elem.wait_for(state="visible", timeout=10000)
-        await elem.fill("testrecruiter@imfhired.com")
+        await elem.fill("testrecruiter@firedin.com")
         
         # -> Fill the email and password fields with recruiter credentials and click the Sign In button to submit the form.
         # password input placeholder="••••••••"

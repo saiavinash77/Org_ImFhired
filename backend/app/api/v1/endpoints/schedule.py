@@ -50,7 +50,10 @@ async def get_available_slots(application_id: str):
         raise HTTPException(status_code=404, detail="Application not found.")
 
     ai_score = app_row.get("ai_score") or 0.0
-    if ai_score < settings.MATCH_THRESHOLD:
+    status = app_row.get("status")
+    
+    # Recruiter explicitly invited the candidate -> bypass AI threshold
+    if status != "invited" and ai_score < settings.MATCH_THRESHOLD:
         raise HTTPException(status_code=403, detail="Your fit score does not meet the minimum requirement to schedule an interview.")
 
     # Get already-booked slots to exclude
@@ -133,7 +136,6 @@ async def book_slot(data: BookSlotRequest):
     unique_token = str(uuid.uuid4()).replace("-", "")
     interview_link = f"/candidate/room/{interview_id}?token={unique_token}"
 
-    # ── Step 4: Create interview record ──
     async with pool.acquire() as conn:
         try:
             await conn.execute(

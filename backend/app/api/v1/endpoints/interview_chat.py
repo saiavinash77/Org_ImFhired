@@ -10,6 +10,7 @@ import json
 import uuid
 import tempfile
 import os
+import logging
 from typing import Optional
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
 from fastapi.responses import JSONResponse
@@ -22,6 +23,7 @@ from app.core.database import get_pg_pool
 from app.api.v1.endpoints.auth import get_current_user
 from app.services.ai_interviewer import InterviewStateMachine, InterviewPhase
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Groq client for LLM
@@ -412,11 +414,26 @@ async def end_interview(
     except Exception as e:
         print(f"[Interview] DB save error: {e}")
 
-    # Trigger assessment generation
+    # Trigger assessment generation — use asyncio.ensure_future for better reliability
     try:
         from app.services.assessment_generator import generate_assessment
         import asyncio
-        asyncio.create_task(
+        
+        # Determine if this is a verification interview
+        is_verification = False
+        try:
+            async with pool.acquire() as conn:
+                vi_check = await conn.fetchrow(
+                    "SELECT id FROM verification_interviews WHERE id = $1 LIMIT 1",
+                    data.interview_id,
+                )
+            is_verification = vi_check is not None
+        except Exception as e:
+            logger.warning(f"Could not determine interview type: {e}")
+            pass
+        
+        # Use ensure_future instead of create_task for better error handling
+        task = asyncio.ensure_future(
             generate_assessment(
                 data.interview_id,
                 transcript,
@@ -425,9 +442,27 @@ async def end_interview(
                 is_verification=is_verification,
             )
         )
-        print(f"[Interview] Assessment task queued for {data.interview_id}")
+        
+        # Add a callback to log completion
+        def log_completion(fut):
+            try:
+                result = fut.result()
+                logger.info(f"[Interview] Assessment completed for {data.interview_id} (verification={is_verification})")
+                print(f"✓ Assessment task completed successfully for {data.interview_id}")
+            except Exception as e:
+                logger.error(f"[Interview] Assessment task failed for {data.interview_id}: {e}")
+                print(f"✗ Assessment task failed for {data.interview_id}: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        task.add_done_callback(log_completion)
+        logger.info(f"[Interview] Assessment task queued for {data.interview_id} (verification={is_verification})")
+        print(f"[Interview] Assessment generation triggered for {data.interview_id}")
     except Exception as e:
-        print(f"[Interview] Assessment trigger error: {e}")
+        logger.error(f"[Interview] Assessment trigger error: {e}")
+        print(f"[Interview] CRITICAL: Failed to trigger assessment: {e}")
+        import traceback
+        traceback.print_exc()
 
     # Clean up session
     _sessions.pop(data.interview_id, None)

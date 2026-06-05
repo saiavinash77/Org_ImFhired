@@ -40,8 +40,8 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
 
   const [phase, setPhase] = useState<Phase>('intro')
   const [transcript, setTranscript] = useState<Turn[]>([])
-  const [micOn, setMicOn] = useState(true)
-  const [camOn, setCamOn] = useState(true)
+  const [micOn, setMicOn] = useState(false)
+  const [camOn, setCamOn] = useState(false)
   const [speakerOn, setSpeakerOn] = useState(true)
   const [isRecording, setIsRecording] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
@@ -51,6 +51,8 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
   const [inputText, setInputText] = useState('')
   const [status, setStatus] = useState('Click "Start Interview" to begin')
   const [isEnding, setIsEnding] = useState(false)
+  const [cameraReady, setCameraReady] = useState(false)
+  const [transcriptTab, setTranscriptTab] = useState<'transcript' | 'insights'>('transcript')
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
@@ -59,33 +61,51 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
   const transcriptRef = useRef<HTMLDivElement>(null)
   const speechRef = useRef<SpeechSynthesisUtterance | null>(null)
   const speakerOnRef = useRef(true)
-  const token = typeof window !== 'undefined' ? localStorage.getItem('imfhired_token') : ''
+  const micOnRef = useRef(false)
+  const token = typeof window !== 'undefined' ? localStorage.getItem('firedin_token') : ''
   const API = getApiUrl()
 
-  const proctorStatus = useProctoring(videoRef, hasStarted && camOn)
+  const proctorStatus = useProctoring(videoRef, hasStarted && camOn && cameraReady)
   const tabStatus = useTabGuard(hasStarted)
 
-  // ── Camera ────────────────────────────────────────────────────────────────
+  // ── Camera — Only request when user starts interview ────────────────────────
   useEffect(() => {
-    if (camOn) {
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
+    if (!hasStarted) return
+
+    if (camOn && !cameraReady) {
+      navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, 
+        audio: false 
+      })
         .then(stream => {
           cameraStreamRef.current = stream
           if (videoRef.current) {
             videoRef.current.srcObject = stream
-            videoRef.current.play().catch(() => {})
+            videoRef.current.onloadedmetadata = () => {
+              videoRef.current?.play().catch(err => console.error('[Camera] Play error:', err))
+              setCameraReady(true)
+            }
           }
         })
         .catch(err => {
-          console.error('[Camera] denied:', err)
+          console.error('[Camera] Error:', err)
           setCamOn(false)
+          setStatus('Camera access denied. Continuing without video.')
         })
-    } else {
+    } else if (!camOn) {
       cameraStreamRef.current?.getTracks().forEach(t => t.stop())
       cameraStreamRef.current = null
       if (videoRef.current) videoRef.current.srcObject = null
+      setCameraReady(false)
     }
-  }, [camOn])
+
+    return () => {
+      if (!camOn) {
+        cameraStreamRef.current?.getTracks().forEach(t => t.stop())
+        cameraStreamRef.current = null
+      }
+    }
+  }, [hasStarted, camOn, cameraReady])
 
   useEffect(() => () => {
     cameraStreamRef.current?.getTracks().forEach(t => t.stop())
@@ -104,35 +124,82 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
   }, [transcript])
 
-  // ── Keep speakerOnRef in sync ─────────────────────────────────────────────
+  // ── Keep refs in sync ────────────────────────────────────────────────────────
   useEffect(() => { speakerOnRef.current = speakerOn }, [speakerOn])
+  useEffect(() => { micOnRef.current = micOn }, [micOn])
 
   // ── Speak text via browser TTS ────────────────────────────────────────────
   const speak = useCallback((text: string) => {
-    if (!speakerOnRef.current) return
-    window.speechSynthesis.cancel()
-    const utt = new SpeechSynthesisUtterance(text)
-    utt.lang = 'en-IN'
-    utt.rate = 0.95
-    utt.pitch = 1.0
-    utt.volume = 1.0
+    if (!speakerOnRef.current) {
+      setAiSpeaking(false)
+      return
+    }
+    
+    try {
+      window.speechSynthesis.cancel()
+      const utt = new SpeechSynthesisUtterance(text)
+      utt.lang = 'en-US'
+      utt.rate = 0.9
+      utt.pitch = 1.0
+      utt.volume = 1.0
 
-    // Pick a good voice if available
-    const voices = window.speechSynthesis.getVoices()
-    const preferred = voices.find(v =>
-      v.lang.startsWith('en') && (v.name.includes('Google') || v.name.includes('Microsoft'))
-    ) || voices.find(v => v.lang.startsWith('en'))
-    if (preferred) utt.voice = preferred
+      // Pick a good voice if available
+      const voices = window.speechSynthesis.getVoices()
+      const preferred = voices.find(v =>
+        v.lang.startsWith('en') && (v.name.includes('Google') || v.name.includes('Microsoft') || v.name.includes('Samantha'))
+      ) || voices.find(v => v.lang.startsWith('en')) || voices[0]
+      
+      if (preferred) utt.voice = preferred
 
-    utt.onstart = () => setAiSpeaking(true)
-    utt.onend = () => setAiSpeaking(false)
-    utt.onerror = () => setAiSpeaking(false)
-    speechRef.current = utt
-    window.speechSynthesis.speak(utt)
+      utt.onstart = () => setAiSpeaking(true)
+      utt.onend = () => setAiSpeaking(false)
+      utt.onerror = (e) => {
+        console.error('[TTS] Error:', e)
+        setAiSpeaking(false)
+      }
+      speechRef.current = utt
+      window.speechSynthesis.speak(utt)
+    } catch (err) {
+      console.error('[TTS] Exception:', err)
+      setAiSpeaking(false)
+    }
   }, [])
 
   // ── Start interview ───────────────────────────────────────────────────────
   const startInterview = async () => {
+    setStatus('Requesting camera & microphone...')
+    
+    // Request camera first
+    try {
+      const camStream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, 
+        audio: false 
+      })
+      cameraStreamRef.current = camStream
+      if (videoRef.current) {
+        videoRef.current.srcObject = camStream
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play().catch(err => console.error('[Camera] Play error:', err))
+          setCameraReady(true)
+        }
+      }
+      setCamOn(true)
+    } catch (err) {
+      console.error('[Camera] Error:', err)
+      setStatus('Camera access denied. Continuing without video.')
+    }
+
+    // Request microphone
+    try {
+      const micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      micStream.getTracks().forEach(t => t.stop())
+      setMicOn(true)
+    } catch (err) {
+      console.error('[Mic] Error:', err)
+      setStatus('Microphone access denied. Please enable it.')
+      return
+    }
+
     setStatus('Starting interview...')
     try {
       const res = await fetch(`${API}/api/v1/interview/start/${interviewId}`, {
@@ -147,21 +214,38 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
       const opening = data.opening_message
       setTranscript([{ speaker: 'ai', text: opening, round: 'intro' }])
       setStatus('Listening...')
-      speak(opening)
+      
+      // Small delay to ensure audio context is ready
+      setTimeout(() => speak(opening), 500)
     } catch (err: any) {
       setStatus(`Error: ${err.message}`)
+      setCamOn(false)
+      setMicOn(false)
+      console.error('[Start Interview] Error:', err)
     }
   }
 
   // ── Record audio (push-to-talk) ───────────────────────────────────────────
   const startRecording = async () => {
-    if (isProcessing || aiSpeaking) return
+    if (isProcessing || aiSpeaking || !micOn) return
+    
     window.speechSynthesis.cancel()
     setAiSpeaking(false)
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: { 
+          echoCancellation: true, 
+          noiseSuppression: true, 
+          autoGainControl: true 
+        } 
+      })
+      
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm') 
+        ? 'audio/webm' 
+        : 'audio/mp4'
+      
+      const recorder = new MediaRecorder(stream, { mimeType })
       audioChunksRef.current = []
 
       recorder.ondataavailable = e => {
@@ -170,8 +254,20 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
 
       recorder.onstop = async () => {
         stream.getTracks().forEach(t => t.stop())
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
-        await processAudio(blob)
+        const blob = new Blob(audioChunksRef.current, { type: mimeType })
+        if (blob.size > 500) {
+          await processAudio(blob)
+        } else {
+          setStatus('Audio too short. Please try again.')
+          setIsProcessing(false)
+        }
+      }
+
+      recorder.onerror = (e) => {
+        console.error('[Recorder] Error:', e)
+        stream.getTracks().forEach(t => t.stop())
+        setStatus('Recording error. Please try again.')
+        setIsRecording(false)
       }
 
       recorder.start()
@@ -181,6 +277,7 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
     } catch (err) {
       console.error('[Mic] Error:', err)
       setStatus('Microphone access denied')
+      setMicOn(false)
     }
   }
 
@@ -281,7 +378,7 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
     setIsEnding(true)
     window.speechSynthesis.cancel()
     try {
-      await fetch(`${API}/api/v1/interview/end`, {
+      const res = await fetch(`${API}/api/v1/interview/end`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -289,10 +386,17 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
         },
         body: JSON.stringify({ interview_id: interviewId, termination_reason: reason }),
       })
+      if (!res.ok) {
+        console.error('[End Interview] Error:', await res.text())
+      }
     } catch (e) {
-      console.error(e)
+      console.error('[End Interview] Exception:', e)
     }
-    router.push(`/candidate/scorecard/${interviewId}`)
+    
+    // Wait a bit for backend to process, then redirect
+    setTimeout(() => {
+      router.push(`/candidate/scorecard/${interviewId}`)
+    }, 1000)
   }
 
   const fmt = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`
@@ -301,21 +405,21 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
   if (!hasStarted) {
     return (
       <div className="h-screen w-full flex flex-col items-center justify-center bg-gray-950 text-white p-6">
-        <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center mb-6 shadow-2xl shadow-blue-600/30">
-          <Brain className="w-10 h-10 text-white" />
+        <div className="w-24 h-24 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full flex items-center justify-center mb-6 shadow-2xl shadow-blue-600/50 animate-pulse">
+          <Brain className="w-12 h-12 text-white" />
         </div>
-        <h1 className="text-3xl font-black mb-2 tracking-tight">Ready for your Interview?</h1>
-        <p className="text-gray-400 text-center max-w-sm mb-8 leading-relaxed">
-          Find a quiet place with good lighting. We'll use your microphone to hear you and speak responses aloud.
+        <h1 className="text-4xl font-black mb-3 tracking-tight">Ready for your Interview?</h1>
+        <p className="text-gray-300 text-center max-w-md mb-8 leading-relaxed text-lg">
+          Find a quiet place with good lighting. We'll use your camera and microphone to conduct the interview.
         </p>
-        <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl px-5 py-4 max-w-sm text-left mb-8">
+        <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/20 rounded-2xl px-5 py-4 max-w-md text-left mb-8">
           <Shield className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-          <p className="text-xs text-amber-300/80 leading-relaxed">
+          <p className="text-sm text-amber-300/90 leading-relaxed">
             <strong className="text-amber-300">AI Shield Active</strong> — This session monitors face presence and tab switching. Leaving this tab will be flagged.
           </p>
         </div>
         <button onClick={startInterview}
-          className="flex items-center gap-3 bg-blue-600 hover:bg-blue-700 text-white font-bold px-10 py-4 rounded-2xl transition-all shadow-xl hover:scale-105 active:scale-95">
+          className="flex items-center gap-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold px-12 py-4 rounded-2xl transition-all shadow-xl hover:scale-105 active:scale-95 text-lg">
           Start Interview
         </button>
       </div>
@@ -341,7 +445,7 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
           <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center">
             <span className="text-white font-black text-[9px]">IF</span>
           </div>
-          <span className="font-black text-sm">ImFhired</span>
+          <span className="font-black text-sm">FiredIn</span>
           <span className="text-gray-500 text-xs ml-1">Interviewer</span>
         </div>
 
@@ -372,33 +476,35 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
 
         {/* Left — AI avatar */}
         <div className="w-72 shrink-0 flex flex-col items-center justify-center border-r border-white/5 bg-gray-900/40 p-6">
-          <div className="relative mb-4">
+          <div className="relative mb-6">
             {aiSpeaking && (
               <>
-                <div className="absolute -inset-4 rounded-full animate-ping opacity-20 bg-blue-500" style={{ animationDuration: '1.5s' }} />
-                <div className="absolute -inset-8 rounded-full animate-ping opacity-10 bg-blue-500" style={{ animationDuration: '1.5s', animationDelay: '0.3s' }} />
+                <div className="absolute -inset-6 rounded-full animate-pulse opacity-30 bg-gradient-to-r from-blue-500 to-purple-500" style={{ animationDuration: '1.2s' }} />
+                <div className="absolute -inset-10 rounded-full animate-pulse opacity-15 bg-blue-500" style={{ animationDuration: '1.8s', animationDelay: '0.2s' }} />
               </>
             )}
-            <div className={`w-28 h-28 rounded-full flex items-center justify-center transition-all ${
-              aiSpeaking ? 'bg-blue-600 shadow-2xl shadow-blue-600/40' : 'bg-gray-800'
+            <div className={`w-32 h-32 rounded-full flex items-center justify-center transition-all duration-300 ${
+              aiSpeaking 
+                ? 'bg-gradient-to-br from-blue-600 to-purple-600 shadow-2xl shadow-blue-600/60 scale-110' 
+                : 'bg-gradient-to-br from-gray-800 to-gray-900 shadow-lg'
             }`}>
-              <Brain className={`w-14 h-14 ${aiSpeaking ? 'text-white' : 'text-gray-600'}`} />
+              <Brain className={`w-16 h-16 transition-all ${aiSpeaking ? 'text-white scale-125' : 'text-gray-600'}`} />
             </div>
           </div>
-          <div className="text-sm font-bold text-white mb-1">ImFhired AI</div>
-          <div className="text-xs text-gray-500">
-            {aiSpeaking ? '🔊 Speaking...' : isProcessing ? '⏳ Thinking...' : status}
+          <div className="text-base font-bold text-white mb-2">FiredIn AI</div>
+          <div className="text-sm text-gray-400 text-center">
+            {aiSpeaking ? '🔊 Speaking...' : isProcessing ? '⏳ Thinking...' : '👂 Listening'}
           </div>
 
-          {/* Voice bars when speaking */}
+          {/* Animated voice bars when speaking */}
           {aiSpeaking && (
-            <div className="flex items-end gap-1 mt-4 h-8">
-              {[3, 5, 8, 5, 3, 7, 4, 6, 3, 5].map((h, i) => (
-                <div key={i} className="w-1 rounded-full bg-blue-400"
+            <div className="flex items-end gap-1.5 mt-6 h-10">
+              {[2, 4, 6, 8, 7, 5, 3, 6, 4, 5].map((h, i) => (
+                <div key={i} className="w-1.5 rounded-full bg-gradient-to-t from-blue-400 to-purple-400"
                   style={{
-                    height: `${h * 3}px`,
-                    animation: 'voiceBar 0.8s ease-in-out infinite alternate',
-                    animationDelay: `${i * 0.08}s`,
+                    height: `${h * 4}px`,
+                    animation: 'voiceBar 0.6s ease-in-out infinite alternate',
+                    animationDelay: `${i * 0.06}s`,
                   }} />
               ))}
             </div>
@@ -428,44 +534,137 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
           </div>
         </div>
 
-        {/* Right — Transcript */}
+        {/* Right — Transcript & Insights Tabs */}
         <div className="w-72 shrink-0 flex flex-col border-l border-white/5 bg-gray-900/40">
-          <div className="px-4 py-3 border-b border-white/5 text-xs font-bold text-gray-400 uppercase tracking-widest">
-            Transcript
+          {/* Tab buttons */}
+          <div className="flex border-b border-white/5">
+            <button
+              onClick={() => setTranscriptTab('transcript')}
+              className={`flex-1 px-4 py-3 text-xs font-bold uppercase tracking-widest transition-all border-b-2 ${
+                transcriptTab === 'transcript'
+                  ? 'text-white border-blue-500'
+                  : 'text-gray-400 border-transparent hover:text-gray-300'
+              }`}>
+              Transcript
+            </button>
+            <button
+              onClick={() => setTranscriptTab('insights')}
+              className={`flex-1 px-4 py-3 text-xs font-bold uppercase tracking-widest transition-all border-b-2 ${
+                transcriptTab === 'insights'
+                  ? 'text-white border-blue-500'
+                  : 'text-gray-400 border-transparent hover:text-gray-300'
+              }`}>
+              Insights
+            </button>
           </div>
-          <div ref={transcriptRef} className="flex-1 overflow-y-auto p-4 space-y-3">
-            {transcript.map((t, i) => (
-              <div key={i} className={`flex ${t.speaker === 'candidate' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] px-3 py-2 rounded-xl text-xs leading-relaxed ${
-                  t.speaker === 'candidate'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-800 text-gray-200'
-                }`}>
-                  {t.text}
+
+          {/* Transcript Tab */}
+          {transcriptTab === 'transcript' && (
+            <div ref={transcriptRef} className="flex-1 overflow-y-auto p-4 space-y-3">
+              {transcript.map((t, i) => (
+                <div key={i} className={`flex ${t.speaker === 'candidate' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[85%] px-3 py-2 rounded-xl text-xs leading-relaxed ${
+                    t.speaker === 'candidate'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-800 text-gray-200'
+                  }`}>
+                    {t.text}
+                  </div>
+                </div>
+              ))}
+              {isProcessing && (
+                <div className="flex justify-start">
+                  <div className="bg-gray-800 px-3 py-2 rounded-xl flex items-center gap-2">
+                    <Loader2 className="w-3 h-3 animate-spin text-blue-400" />
+                    <span className="text-xs text-gray-400">Thinking...</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Insights Tab */}
+          {transcriptTab === 'insights' && (
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <div className="space-y-3">
+                <div className="bg-gray-800/50 rounded-lg p-3 border border-white/10">
+                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Current Phase</div>
+                  <div className="text-sm font-bold text-white capitalize">{phase}</div>
+                </div>
+
+                <div className="bg-gray-800/50 rounded-lg p-3 border border-white/10">
+                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Exchanges</div>
+                  <div className="text-sm font-bold text-white">{transcript.length} turns</div>
+                </div>
+
+                <div className="bg-gray-800/50 rounded-lg p-3 border border-white/10">
+                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Duration</div>
+                  <div className="text-sm font-bold text-white">{Math.floor(elapsed / 60)}:{(elapsed % 60).toString().padStart(2, '0')}</div>
+                </div>
+
+                <div className="bg-gray-800/50 rounded-lg p-3 border border-white/10">
+                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">AI Status</div>
+                  <div className="text-sm font-bold">
+                    {aiSpeaking ? (
+                      <span className="text-green-400">🔊 Speaking</span>
+                    ) : isProcessing ? (
+                      <span className="text-yellow-400">⏳ Processing</span>
+                    ) : (
+                      <span className="text-blue-400">👂 Listening</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="bg-gray-800/50 rounded-lg p-3 border border-white/10">
+                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Proctoring</div>
+                  <div className="text-sm font-bold">
+                    {proctorStatus.facesDetected !== undefined ? (
+                      <span className={proctorStatus.isWarning ? 'text-red-400' : 'text-green-400'}>
+                        {proctorStatus.facesDetected} face{proctorStatus.facesDetected !== 1 ? 's' : ''} detected
+                      </span>
+                    ) : (
+                      <span className="text-gray-400">Initializing...</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="bg-gray-800/50 rounded-lg p-3 border border-white/10">
+                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Microphone</div>
+                  <div className="text-sm font-bold">
+                    {micOn ? (
+                      <span className="text-green-400">✓ Enabled</span>
+                    ) : (
+                      <span className="text-red-400">✗ Disabled</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="bg-gray-800/50 rounded-lg p-3 border border-white/10">
+                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Camera</div>
+                  <div className="text-sm font-bold">
+                    {camOn ? (
+                      <span className="text-green-400">✓ Enabled</span>
+                    ) : (
+                      <span className="text-red-400">✗ Disabled</span>
+                    )}
+                  </div>
                 </div>
               </div>
-            ))}
-            {isProcessing && (
-              <div className="flex justify-start">
-                <div className="bg-gray-800 px-3 py-2 rounded-xl flex items-center gap-2">
-                  <Loader2 className="w-3 h-3 animate-spin text-blue-400" />
-                  <span className="text-xs text-gray-400">Thinking...</span>
-                </div>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Controls */}
-      <div className="h-24 shrink-0 flex flex-col items-center justify-center gap-3 border-t border-white/5 bg-gray-900/80 px-6">
+      <div className="h-28 shrink-0 flex flex-col items-center justify-center gap-4 border-t border-white/5 bg-gray-900/80 px-6">
         {/* Control buttons */}
         <div className="flex items-center gap-3">
           {/* Mic toggle */}
           <button onClick={() => setMicOn(!micOn)}
             className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all ${
               micOn ? 'bg-white/5 text-white hover:bg-white/10' : 'bg-red-500/20 text-red-400'
-            }`}>
+            }`}
+            title={micOn ? 'Microphone on' : 'Microphone off'}>
             {micOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
           </button>
 
@@ -476,9 +675,9 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
             onTouchStart={startRecording}
             onTouchEnd={stopRecording}
             disabled={isProcessing || aiSpeaking || !micOn}
-            className={`px-6 h-12 rounded-2xl font-bold text-sm transition-all flex items-center gap-2 ${
+            className={`px-8 h-12 rounded-2xl font-bold text-sm transition-all flex items-center gap-2 ${
               isRecording
-                ? 'bg-red-500 text-white scale-105 shadow-lg shadow-red-500/30'
+                ? 'bg-red-500 text-white scale-105 shadow-lg shadow-red-500/40'
                 : isProcessing || aiSpeaking
                 ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                 : 'bg-blue-600 hover:bg-blue-700 text-white'
@@ -496,7 +695,8 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
           <button onClick={() => setCamOn(!camOn)}
             className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all ${
               camOn ? 'bg-white/5 text-white hover:bg-white/10' : 'bg-red-500/20 text-red-400'
-            }`}>
+            }`}
+            title={camOn ? 'Camera on' : 'Camera off'}>
             {camOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
           </button>
 
@@ -504,7 +704,8 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
           <button onClick={() => setSpeakerOn(!speakerOn)}
             className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all ${
               speakerOn ? 'bg-white/5 text-white hover:bg-white/10' : 'bg-red-500/20 text-red-400'
-            }`}>
+            }`}
+            title={speakerOn ? 'Speaker on' : 'Speaker off'}>
             {speakerOn ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
           </button>
 
@@ -535,8 +736,8 @@ export default function InterviewRoom({ params }: { params: { interviewId: strin
 
       <style jsx global>{`
         @keyframes voiceBar {
-          from { transform: scaleY(0.3); }
-          to { transform: scaleY(1); }
+          from { transform: scaleY(0.2); opacity: 0.6; }
+          to { transform: scaleY(1); opacity: 1; }
         }
       `}</style>
     </div>

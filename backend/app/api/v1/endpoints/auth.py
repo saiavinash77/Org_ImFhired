@@ -7,6 +7,7 @@ import hmac
 import hashlib
 import base64
 import uuid
+import logging
 from datetime import datetime, timedelta
 
 import jwt
@@ -21,6 +22,7 @@ from app.schemas.schemas import (
     UserCreate, UserLogin, UserResponse, TokenResponse, UserRole,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 security = HTTPBearer()
 
@@ -61,8 +63,10 @@ async def get_current_user(
         )
         return payload
     except jwt.ExpiredSignatureError:
+        logger.warning("Token expired")
         raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
+    except jwt.InvalidTokenError as e:
+        logger.warning(f"Invalid token: {e}")
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
@@ -77,7 +81,8 @@ async def get_current_user_optional(
             settings.SECRET_KEY,
             algorithms=[settings.ALGORITHM],
         )
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Optional auth failed: {e}")
         return None
 
 
@@ -88,6 +93,8 @@ async def register(data: UserCreate):
     """Register a new user via Cognito, then persist profile to RDS."""
     cognito = get_cognito()
     pool = await get_pg_pool()
+
+    logger.info(f"Registration attempt for {data.email}")
 
     # 1. Create Cognito user
     try:
@@ -106,8 +113,11 @@ async def register(data: UserCreate):
             lambda: cognito.admin_create_user(**kwargs)
         )
         cognito_user_id = cognito_resp["User"]["Username"]
+        logger.info(f"Cognito user created: {cognito_user_id}")
     except ClientError as e:
         code = e.response["Error"]["Code"]
+        logger.error(f"Cognito error: {code} - {e.response['Error']['Message']}")
+        
         if code == "UsernameExistsException":
             # Email exists in Cognito — check RDS
             async with pool.acquire() as conn:
@@ -132,7 +142,8 @@ async def register(data: UserCreate):
                         Permanent=True,
                     )
                 )
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Could not reset password: {e}")
                 pass
             # Fall through to RDS insert below
             user_id = str(uuid.uuid4())
@@ -170,11 +181,16 @@ async def register(data: UserCreate):
                 Permanent=True,
             )
         )
+        logger.info(f"Password set for {data.email}")
     except ClientError as e:
+        logger.error(f"Password setup failed: {e.response['Error']['Message']}")
         raise HTTPException(status_code=400, detail=f"Password setup failed: {e.response['Error']['Message']}")
 
     # 2. Persist to RDS
     user_id = str(uuid.uuid4())  # generate new ID upfront
+    import secrets
+    verification_token = secrets.token_urlsafe(32)
+
     async with pool.acquire() as conn:
         existing_user = await conn.fetchrow("SELECT id, role FROM users WHERE email = $1", data.email)
         if existing_user:
@@ -186,8 +202,8 @@ async def register(data: UserCreate):
             user_id = str(existing_user["id"])  # reuse existing ID
         else:
             await conn.execute(
-                "INSERT INTO users (id, email, role, cognito_username) VALUES ($1, $2, $3, $4)",
-                user_id, data.email, data.role.value, data.email,
+                "INSERT INTO users (id, email, role, cognito_username, email_verification_token) VALUES ($1, $2, $3, $4, $5)",
+                user_id, data.email, data.role.value, data.email, verification_token
             )
 
         # Upsert profile
@@ -212,19 +228,22 @@ async def register(data: UserCreate):
         "company_name": data.company_name if data.role == UserRole.RECRUITER else None,
     }
 
-    # Send welcome email (non-blocking — don't fail registration if email fails)
+    # Send verification email
     try:
-        from app.services.email_service import send_welcome_email
-        import asyncio
-        asyncio.create_task(send_welcome_email(data.email, data.full_name, data.role.value))
-    except Exception:
+        from app.services.email_service import send_verification_email
+        asyncio.create_task(send_verification_email(data.email, data.full_name, verification_token))
+    except Exception as e:
+        logger.warning(f"Verification email failed: {e}")
         pass
+    
+    logger.info(f"User registered successfully: {user_id}")
     return TokenResponse(
         access_token=token,
         user=UserResponse(
             id=user_id,
             email=data.email,
             role=data.role,
+            email_verified=False,
             profile=profile_data,
             created_at=datetime.utcnow(),
         ),
@@ -238,6 +257,8 @@ async def login(data: UserLogin):
     """Authenticate via Cognito, return custom JWT."""
     cognito = get_cognito()
     pool = await get_pg_pool()
+
+    logger.info(f"Login attempt for {data.email}")
 
     auth_params: dict = {
         "USERNAME": data.email,
@@ -255,8 +276,10 @@ async def login(data: UserLogin):
                 AuthParameters=auth_params,
             )
         )
+        logger.info(f"Cognito auth successful for {data.email}")
     except ClientError as e:
         code = e.response["Error"]["Code"]
+        logger.warning(f"Cognito auth failed: {code}")
         if code in ("NotAuthorizedException", "UserNotFoundException"):
             raise HTTPException(status_code=401, detail="Invalid email or password.")
         raise HTTPException(status_code=401, detail=f"Login failed: {e.response['Error']['Message']}")
@@ -264,9 +287,10 @@ async def login(data: UserLogin):
     # Fetch user + profile from RDS
     async with pool.acquire() as conn:
         user_row = await conn.fetchrow(
-            "SELECT id, email, role FROM users WHERE email = $1", data.email
+            "SELECT id, email, role, email_verified FROM users WHERE email = $1", data.email
         )
         if not user_row:
+            logger.error(f"User not found in RDS: {data.email}")
             raise HTTPException(status_code=404, detail="User profile not found. Please re-register.")
 
         profile_row = await conn.fetchrow(
@@ -278,12 +302,14 @@ async def login(data: UserLogin):
     profile = dict(profile_row) if profile_row else {"id": user_id, "full_name": "", "skills": []}
 
     token = create_access_token(user_id, role)
+    logger.info(f"Login successful for {user_id}")
     return TokenResponse(
         access_token=token,
         user=UserResponse(
             id=user_id,
             email=user_row["email"],
             role=role,
+            email_verified=user_row["email_verified"],
             profile=profile,
             created_at=datetime.utcnow(),
         ),
@@ -295,10 +321,11 @@ async def login(data: UserLogin):
 @router.post("/logout")
 async def logout(current_user: dict = Depends(get_current_user)):
     """Logout — client should discard the JWT. Optionally revoke Cognito tokens."""
+    logger.info(f"Logout for {current_user.get('sub')}")
     return {"message": "Logged out successfully."}
 
 
-# ── Forgot password ───────────────────────────────────────────────────────────
+# ── Forgot password ───────────────────────────────────────────────────────
 
 class ForgotPasswordRequest(BaseModel):
     email: str
@@ -307,6 +334,7 @@ class ForgotPasswordRequest(BaseModel):
 async def forgot_password(data: ForgotPasswordRequest):
     """Trigger Cognito forgot-password flow (sends reset code via email)."""
     cognito = get_cognito()
+    logger.info(f"Forgot password request for {data.email}")
     try:
         kwargs: dict = {
             "ClientId": settings.COGNITO_CLIENT_ID,
@@ -315,12 +343,13 @@ async def forgot_password(data: ForgotPasswordRequest):
         if settings.COGNITO_CLIENT_SECRET:
             kwargs["SecretHash"] = _cognito_secret_hash(data.email)
         await asyncio.to_thread(lambda: cognito.forgot_password(**kwargs))
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Forgot password error: {e}")
         pass  # Never reveal whether the email exists
     return {"message": "If an account exists with that email, a reset code has been sent."}
 
 
-# ── Confirm forgot password ───────────────────────────────────────────────────
+# ── Confirm forgot password ───────────────────────────────────────────────
 
 class ConfirmPasswordRequest(BaseModel):
     email: str
@@ -332,6 +361,7 @@ class ConfirmPasswordRequest(BaseModel):
 async def confirm_password(data: ConfirmPasswordRequest):
     """Confirm the Cognito password reset with the emailed code."""
     cognito = get_cognito()
+    logger.info(f"Confirm password for {data.email}")
     try:
         kwargs: dict = {
             "ClientId": settings.COGNITO_CLIENT_ID,
@@ -342,12 +372,14 @@ async def confirm_password(data: ConfirmPasswordRequest):
         if settings.COGNITO_CLIENT_SECRET:
             kwargs["SecretHash"] = _cognito_secret_hash(data.email)
         await asyncio.to_thread(lambda: cognito.confirm_forgot_password(**kwargs))
+        logger.info(f"Password reset successful for {data.email}")
     except ClientError as e:
+        logger.error(f"Password reset failed: {e.response['Error']['Message']}")
         raise HTTPException(status_code=400, detail=e.response["Error"]["Message"])
     return {"message": "Password reset successfully."}
 
 
-# ── Refresh token ─────────────────────────────────────────────────────────────
+# ── Refresh token ─────────────────────────────────────────────────────────
 
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(current_user: dict = Depends(get_current_user)):
@@ -355,6 +387,8 @@ async def refresh_token(current_user: dict = Depends(get_current_user)):
     pool = await get_pg_pool()
     user_id = current_user["sub"]
     role = current_user.get("role", "candidate")
+
+    logger.info(f"Token refresh for {user_id}")
 
     async with pool.acquire() as conn:
         user_row = await conn.fetchrow("SELECT email FROM users WHERE id = $1", user_id)
@@ -370,13 +404,14 @@ async def refresh_token(current_user: dict = Depends(get_current_user)):
             id=user_id,
             email=email,
             role=role,
+            email_verified=user_row["email_verified"] if user_row and "email_verified" in user_row else False,
             profile=profile,
             created_at=datetime.utcnow(),
         ),
     )
 
 
-# ── Get current user ──────────────────────────────────────────────────────────
+# ── Get current user ──────────────────────────────────────────────────────
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: dict = Depends(get_current_user)):
@@ -384,15 +419,18 @@ async def get_me(current_user: dict = Depends(get_current_user)):
     pool = await get_pg_pool()
     user_id = current_user["sub"]
 
+    logger.info(f"Get current user: {user_id}")
+
     async with pool.acquire() as conn:
         user_row = await conn.fetchrow(
-            "SELECT id, email, role FROM users WHERE id = $1", user_id
+            "SELECT id, email, role, email_verified FROM users WHERE id = $1", user_id
         )
         profile_row = await conn.fetchrow(
             "SELECT * FROM profiles WHERE id = $1", user_id
         )
 
     if not user_row:
+        logger.error(f"User not found: {user_id}")
         raise HTTPException(status_code=404, detail="User not found.")
 
     profile = dict(profile_row) if profile_row else {"id": user_id, "full_name": "", "skills": []}
@@ -400,12 +438,13 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         id=str(user_row["id"]),
         email=user_row["email"],
         role=user_row["role"],
+        email_verified=user_row["email_verified"],
         profile=profile,
         created_at=datetime.utcnow(),
     )
 
 
-# ── Team management ───────────────────────────────────────────────────────────
+# ── Team management ───────────────────────────────────────────────────────
 
 @router.get("/team")
 async def get_team_members(current_user: dict = Depends(get_current_user)):
@@ -466,4 +505,34 @@ async def invite_team_member(
             "INSERT INTO profiles (id, full_name, headline) VALUES ($1, $2, 'Recruiter')",
             new_id, data.name,
         )
+    logger.info(f"Team member invited: {data.email}")
     return {"message": "Invite sent successfully."}
+
+
+
+
+# ── Email Verification ────────────────────────────────────────────────────────
+
+@router.get("/verify-email")
+async def verify_email(token: str):
+    """Confirm the email verification token and update the user's status."""
+    pool = await get_pg_pool()
+    async with pool.acquire() as conn:
+        user = await conn.fetchrow(
+            "SELECT id FROM users WHERE email_verification_token = $1", token
+        )
+        if not user:
+            raise HTTPException(status_code=400, detail="Invalid or expired verification token.")
+
+        await conn.execute(
+            "UPDATE users SET email_verified = TRUE, email_verification_token = NULL WHERE id = $1",
+            user["id"]
+        )
+        
+        # Also update profile verification status
+        await conn.execute(
+            "UPDATE profiles SET verification_status = 'verified' WHERE id = $1",
+            user["id"]
+        )
+
+    return {"message": "Email verified successfully! You can now access all features."}

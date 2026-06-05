@@ -1,10 +1,9 @@
 -- ============================================================
--- HireAI — AWS RDS PostgreSQL Schema
--- Replaces Supabase entirely.
--- Run once on a fresh RDS instance.
+-- FiredIn — AWS RDS PostgreSQL Schema
+-- Canonical Schema Definition
 -- ============================================================
 
--- Enable pgvector for semantic JD matching
+-- Enable pgvector for semantic search and JD matching
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
@@ -12,8 +11,8 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS users (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email           TEXT UNIQUE NOT NULL,
-    role            TEXT NOT NULL CHECK (role IN ('recruiter', 'candidate', 'admin')),
-    cognito_username TEXT,                    -- Cognito email/username
+    role            TEXT NOT NULL DEFAULT 'candidate' CHECK (role IN ('recruiter', 'candidate', 'admin')),
+    cognito_username TEXT,                    -- Cognito/custom username reference
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
@@ -21,7 +20,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- ── PROFILES ──────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS profiles (
     id              UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-    full_name       TEXT,
+    full_name       TEXT NOT NULL DEFAULT 'User',
     phone           TEXT,
     avatar_url      TEXT,
     headline        TEXT,
@@ -32,6 +31,24 @@ CREATE TABLE IF NOT EXISTS profiles (
     experience_years FLOAT          DEFAULT 0,
     resume_url      TEXT,
     parsed_data     JSONB,
+
+    -- Onboarding Step Columns
+    onboarding_completed BOOLEAN    DEFAULT FALSE,
+    location             TEXT,
+    work_status          TEXT,
+    current_company      TEXT,
+    job_title            TEXT,
+    current_salary       INTEGER,
+    notice_period        TEXT,
+    industry             TEXT,
+    department           TEXT,
+    highest_qualification TEXT,
+    university           TEXT,
+    specialization       TEXT,
+    graduation_year      INTEGER,
+    preferred_locations  TEXT[]     DEFAULT '{}',
+    expected_salary      INTEGER,
+    resume_headline      TEXT,
 
     -- ── Verification layer ────────────────────────────────────────────────────
     -- Tracks the candidate's onboarding verification interview state.
@@ -48,8 +65,6 @@ CREATE TABLE IF NOT EXISTS profiles (
 );
 
 -- ── VERIFICATION INTERVIEWS ───────────────────────────────────────────────────
--- Separate from job interviews — these are the onboarding verification sessions.
--- One per candidate (upserted on retake).
 CREATE TABLE IF NOT EXISTS verification_interviews (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     candidate_id    UUID UNIQUE REFERENCES users(id) ON DELETE CASCADE,
@@ -62,6 +77,47 @@ CREATE TABLE IF NOT EXISTS verification_interviews (
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     completed_at    TIMESTAMPTZ
 );
+
+-- ── WORK STORIES (Daily/Weekly Logs) ──────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS work_stories (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content         TEXT NOT NULL,
+    date            DATE DEFAULT CURRENT_DATE,
+    bullets         TEXT[]          DEFAULT '{}',
+    tags            TEXT[]          DEFAULT '{}',
+    embedding       vector(1536),   -- Story tag/content embedding for semantic search
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index for stories vector search
+CREATE INDEX IF NOT EXISTS work_stories_embedding_idx
+    ON work_stories USING ivfflat (embedding vector_cosine_ops)
+    WITH (lists = 100);
+
+-- ── STORY REACTIONS ───────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS story_reactions (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    story_id        UUID NOT NULL REFERENCES work_stories(id) ON DELETE CASCADE,
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    reaction_type   TEXT DEFAULT 'like',
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(story_id, user_id)
+);
+
+-- ── PROFILE EMBEDDINGS (Proactive Composite Candidate Vectors) ────────────────
+CREATE TABLE IF NOT EXISTS profile_embeddings (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id         UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    composite_text  TEXT,           -- Flattened text representation used for embedding
+    embedding       vector(1536) NOT NULL, -- Composite vector: resume + stories + skills + score
+    updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index for profile composite search
+CREATE INDEX IF NOT EXISTS profile_embeddings_embedding_idx
+    ON profile_embeddings USING ivfflat (embedding vector_cosine_ops)
+    WITH (lists = 100);
 
 -- ── JOBS ──────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS jobs (

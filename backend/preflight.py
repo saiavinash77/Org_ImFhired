@@ -42,7 +42,7 @@ def check_frontend():
         print(f"⚠️  Frontend not running yet (start npm run dev): {e}")
         return False
 
-print("\n=== HireAI Pre-flight Check ===\n")
+print("\n=== FiredIn Pre-flight Check ===\n")
 asyncio.run(check_db())
 check_api()
 check_frontend()

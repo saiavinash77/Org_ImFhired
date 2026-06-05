@@ -166,7 +166,7 @@ async def send_verification_complete_email(
         headline = f"You're Verified, {first_name}!"
         subline = f"Verification Score: {int(overall_score)}/100"
         body_text = (
-            f"Congratulations! You've passed the ImFhired verification interview with a score of "
+            f"Congratulations! You've passed the FiredIn verification interview with a score of "
             f"<strong style='color:#059669;'>{int(overall_score)}/100</strong>. "
             "Your profile now carries a <strong>Verified ✓</strong> badge — recruiters can see "
             "you're a proven professional, not just a resume in a pile."
@@ -213,7 +213,7 @@ async def send_verification_complete_email(
         </tr>
         <tr>
           <td style="background:#f8fafc;padding:24px 40px;text-align:center;border-top:1px solid #e2e8f0;">
-            <p style="color:#64748b;font-size:13px;margin:0;">Powered by <strong>ImFhired</strong> &bull; The Next Door for Experienced Talent</p>
+            <p style="color:#64748b;font-size:13px;margin:0;">Powered by <strong>FiredIn</strong> &bull; The Next Door for Experienced Talent</p>
           </td>
         </tr>
       </table>
@@ -223,8 +223,8 @@ async def send_verification_complete_email(
 </html>"""
 
     subject = (
-        f"You're Verified on ImFhired! Score: {int(overall_score)}/100"
+        f"You're Verified on FiredIn! Score: {int(overall_score)}/100"
         if passed
-        else f"Your ImFhired Verification Score: {int(overall_score)}/100"
+        else f"Your FiredIn Verification Score: {int(overall_score)}/100"
     )
     await _send_resend_email(to_email, subject, html_body)

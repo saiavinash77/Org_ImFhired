@@ -23,9 +23,44 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
 
-async def build_context_prompt(recruiter_id: str) -> str:
-    """Fetch recent RDS data to provide context for the AI assistant."""
+async def build_context_prompt(user_id: str, role: str) -> str:
+    """Fetch recent RDS data and system health to provide context for the AI assistant."""
     pool = await get_pg_pool()
+    
+    if role == "admin":
+        from app.api.v1.endpoints.admin import get_system_stats
+        
+        try:
+            sys_stats = get_system_stats()
+            async with pool.acquire() as conn:
+                users_count = await conn.fetchval("SELECT COUNT(*) FROM users")
+                interviews_count = await conn.fetchval("SELECT COUNT(*) FROM interviews")
+                jobs_count = await conn.fetchval("SELECT COUNT(*) FROM jobs")
+                
+            return f"""
+You are the FiredIn System Admin AI Agent.
+Your job is to provide instant, helpful insights directly to the platform administrator based on live system metrics.
+
+CURRENT SYSTEM HEALTH:
+- CPU Usage: {sys_stats.get('cpu_usage_percent')}% ({sys_stats.get('cpu_cores')} Cores)
+- Memory Usage: {sys_stats.get('memory_used_gb')}GB / {sys_stats.get('memory_total_gb')}GB ({sys_stats.get('memory_percent')}%)
+- Disk Usage: {sys_stats.get('disk_percent')}%
+- OS: {sys_stats.get('os')} {sys_stats.get('os_release')}
+
+PLATFORM METRICS:
+- Total Registered Users: {users_count}
+- Total Jobs Posted: {jobs_count}
+- Total Interviews Conducted: {interviews_count}
+
+Guidelines:
+1. Act as an expert DevOps and Platform Administrator.
+2. If asked about system health, CPU, memory, or user counts, use the data above.
+3. Keep answers concise and professional. Use markdown formatting.
+"""
+        except Exception as e:
+            logger.error(f"Failed to fetch admin context: {e}")
+            return "You are the FiredIn Admin Assistant. An error occurred fetching system data."
+
     
     try:
         # Fetch Active Jobs for this recruiter
@@ -38,7 +73,7 @@ async def build_context_prompt(recruiter_id: str) -> str:
                 ORDER BY created_at DESC
                 LIMIT 20
                 """,
-                recruiter_id,
+                user_id,
             )
 
         jobs_text = "None"
@@ -68,7 +103,7 @@ async def build_context_prompt(recruiter_id: str) -> str:
                 ORDER BY a.created_at DESC
                 LIMIT 10
                 """,
-                recruiter_id,
+                user_id,
             )
 
         candidates_text = "None"
@@ -89,7 +124,7 @@ async def build_context_prompt(recruiter_id: str) -> str:
                 candidates_text = "\n".join(candidate_lines)
 
         return f"""
-You are the embedded AI Assistant inside the ImFhired Recruiter Dashboard.
+You are the embedded AI Assistant inside the FiredIn Recruiter Dashboard.
 Your job is to provide instant, helpful insights directly to the recruiter based on their current active data.
 
 CURRENT ACTIVE JOB POSTINGS:
@@ -107,7 +142,7 @@ Guidelines:
 
     except Exception as e:
         logger.error(f"Failed to fetch context for AI Assistant: {e}")
-        return "You are the ImFhired Assistant. An error occurred fetching current data, so you only have general knowledge."
+        return "You are the FiredIn Assistant. An error occurred fetching current data, so you only have general knowledge."
 
 
 @router.post("/", response_model=ChatResponse)
@@ -123,8 +158,16 @@ async def chat_with_assistant(
         raise HTTPException(status_code=403, detail="Not authorized.")
 
     try:
-        # Build the dynamic system instruction
-        system_prompt = await build_context_prompt(current_user["sub"])
+        # ── Multi-Agent Routing for Admins ──
+        if current_user.get("role") == "admin":
+            from app.services.admin_agents import admin_agents
+            # The manager agent evaluates the last message and delegates
+            last_message = request.messages[-1].content
+            reply_content = await admin_agents.process_message(last_message)
+            return ChatResponse(reply=reply_content)
+
+        # ── Original Single Agent for Recruiters ──
+        system_prompt = await build_context_prompt(current_user["sub"], current_user.get("role", "recruiter"))
         
         # Format messages for OpenAI
         api_messages = [{"role": "system", "content": system_prompt}]

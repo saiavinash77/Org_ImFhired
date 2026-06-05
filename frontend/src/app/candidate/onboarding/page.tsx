@@ -1,11 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import axios from 'axios'
-import toast from 'react-hot-toast'
-import { getApiUrl } from '@/lib/api'
+import { profilesApi } from '@/services/api'
 import { useAuth } from '@/hooks/useAuth'
+import AuthGuard from '@/components/AuthGuard'
+import toast from 'react-hot-toast'
 import {
   User, Briefcase, GraduationCap, MapPin, FileText,
   ChevronRight, ChevronLeft, Loader2, CheckCircle, Plus, X
@@ -44,15 +44,98 @@ const WORK_STATUS_OPTIONS = [
   },
 ]
 
-export default function OnboardingPage() {
+function OnboardingContent() {
   const router = useRouter()
-  const { token } = useAuth()
+  const { token, user, updateUser, isLoading } = useAuth()
   const [step, setStep] = useState(1)
   const [saving, setSaving] = useState(false)
   const [skillInput, setSkillInput] = useState('')
   const [resumeFile, setResumeFile] = useState<File | null>(null)
   const [resumeUploading, setResumeUploading] = useState(false)
   const [resumeUrl, setResumeUrl] = useState('')
+  const [hasResumed, setHasResumed] = useState(false)
+
+  // Check if already onboarded - only redirect after auth is loaded
+  useEffect(() => {
+    if (isLoading) return // Wait for auth to load
+    
+    if (user && user.profile && typeof user.profile === 'object' && 'onboarding_completed' in user.profile) {
+      if (user.profile.onboarding_completed === true) {
+        router.push('/candidate/dashboard')
+      }
+    }
+  }, [user, router, isLoading])
+
+  // Hydrate form and resume onboarding if ?resume=true
+  useEffect(() => {
+    if (isLoading || !user || !user.profile) return
+
+    console.log("[Onboarding] Hydrating form fields from existing profile data...")
+    const p = user.profile as any
+    setForm(f => ({
+      ...f,
+      full_name: p.full_name || f.full_name || '',
+      phone: p.phone || f.phone || '',
+      location: p.location || f.location || '',
+      work_status: p.work_status || f.work_status || 'laid_off',
+      current_company: p.current_company || f.current_company || '',
+      job_title: p.job_title || f.job_title || '',
+      experience_years: p.experience_years !== undefined && p.experience_years !== null ? p.experience_years : f.experience_years,
+      current_salary: p.current_salary !== undefined && p.current_salary !== null ? p.current_salary : f.current_salary,
+      notice_period: p.notice_period || f.notice_period || '1 month',
+      skills: p.skills && p.skills.length > 0 ? p.skills : f.skills,
+      industry: p.industry || f.industry || '',
+      department: p.department || f.department || '',
+      highest_qualification: p.highest_qualification || f.highest_qualification || "Bachelor's",
+      university: p.university || f.university || '',
+      specialization: p.specialization || f.specialization || '',
+      graduation_year: p.graduation_year || f.graduation_year || new Date().getFullYear(),
+      preferred_locations: p.preferred_locations && p.preferred_locations.length > 0 ? p.preferred_locations : f.preferred_locations,
+      expected_salary: p.expected_salary !== undefined && p.expected_salary !== null ? p.expected_salary : f.expected_salary,
+      resume_headline: p.resume_headline || p.headline || f.resume_headline || '',
+    }))
+
+    if (p.resume_url) {
+      setResumeUrl(p.resume_url)
+    }
+
+    const searchParams = new URLSearchParams(window.location.search)
+    if (searchParams.get('resume') === 'true' && !hasResumed) {
+      console.log("[Onboarding] Resume param detected. Scanning for first incomplete step...")
+      
+      const hasBasicInfo = p.full_name?.trim() && p.phone?.trim() && p.location?.trim()
+      const hasEmployment = p.current_company?.trim() && p.job_title?.trim()
+      const hasSkills = p.skills && p.skills.length > 0
+      const hasResume = p.resume_url?.trim()
+      const hasEducation = p.university?.trim() && p.specialization?.trim()
+      const hasPrefs = p.preferred_locations && p.preferred_locations.length > 0
+      const hasHeadline = p.resume_headline?.trim() && p.resume_headline.trim().length >= 10
+
+      let resumeStep = 1
+      if (!hasBasicInfo) {
+        resumeStep = 1
+      } else if (!hasEmployment) {
+        resumeStep = 3
+      } else if (!hasSkills) {
+        resumeStep = 4
+      } else if (!hasResume) {
+        resumeStep = 5
+      } else if (!hasEducation) {
+        resumeStep = 6
+      } else if (!hasPrefs) {
+        resumeStep = 7
+      } else if (!hasHeadline) {
+        resumeStep = 8
+      } else {
+        resumeStep = 8
+      }
+
+      console.log(`[Onboarding] Resuming from step ${resumeStep}`)
+      setStep(resumeStep)
+      setHasResumed(true)
+    }
+  }, [user, isLoading, hasResumed])
+
 
   const [form, setForm] = useState({
     full_name: '', phone: '', location: '',
@@ -93,23 +176,20 @@ export default function OnboardingPage() {
     setResumeFile(file)
     setResumeUploading(true)
     try {
-      const API_URL = getApiUrl()
       const formData = new FormData()
       formData.append('resume', file)
-      const res = await axios.post(`${API_URL}/api/v1/profiles/me/resume`, formData, {
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
-      })
-      setResumeUrl(res.data.resume_url || '')
+      const res = await profilesApi.uploadResume(formData)
+      setResumeUrl(res.resume_url || '')
       // Auto-fill skills if parsed
-      if (res.data.skills?.length > 0 && form.skills.length === 0) {
-        set('skills', res.data.skills.slice(0, 15))
+      if (res.skills?.length > 0 && form.skills.length === 0) {
+        set('skills', res.skills.slice(0, 15))
       }
-      if (res.data.experience_years) {
-        set('experience_years', res.data.experience_years)
+      if (res.experience_years) {
+        set('experience_years', res.experience_years)
       }
       toast.success('Resume uploaded and parsed!')
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Upload failed')
+      toast.error(err.message || 'Upload failed')
       setResumeFile(null)
     } finally {
       setResumeUploading(false)
@@ -119,7 +199,6 @@ export default function OnboardingPage() {
   const handleFinish = async () => {
     setSaving(true)
     try {
-      const API_URL = getApiUrl()
       const payload = {
         ...form,
         experience_years: form.experience_years ? parseFloat(String(form.experience_years)) : 0,
@@ -128,20 +207,37 @@ export default function OnboardingPage() {
         onboarding_completed: true,
         headline: form.resume_headline,
       }
-      await axios.put(`${API_URL}/api/v1/profiles/me`, payload, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      toast.success('Profile complete! Starting verification...')
-      const vRes = await axios.post(`${API_URL}/api/v1/verification/start`, {}, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      const { interview_id } = vRes.data
-      router.push(`/candidate/verify/${interview_id}`)
+      await profilesApi.updateProfile(payload)
+      
+      // Update local state so Guard doesn't redirect back to onboarding
+      updateUser({ profile: { onboarding_completed: true } })
+      
+      toast.success('Profile complete!')
+      router.push('/candidate/dashboard')
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to save profile')
+      toast.error(err.message || 'Failed to save profile')
     } finally {
       setSaving(false)
     }
+  }
+
+  const handleNext = async () => {
+    console.log(`[Onboarding Flow] Autosaving profile progress for Step ${step}...`)
+    try {
+      const payload = {
+        ...form,
+        experience_years: form.experience_years ? parseFloat(String(form.experience_years)) : 0,
+        current_salary: form.current_salary ? parseInt(String(form.current_salary)) : null,
+        expected_salary: form.expected_salary ? parseInt(String(form.expected_salary)) : null,
+        headline: form.resume_headline,
+      }
+      const res = await profilesApi.updateProfile(payload)
+      updateUser({ profile: res })
+      console.log(`[Onboarding Flow] Autosave successful for Step ${step}`)
+    } catch (err: any) {
+      console.warn(`[Onboarding Flow] Autosave failed for Step ${step}:`, err.message)
+    }
+    setStep(s => Math.min(s + 1, STEPS.length))
   }
 
   const canNext = () => {
@@ -152,34 +248,54 @@ export default function OnboardingPage() {
     return true
   }
 
-  return (
-    <div className="min-h-screen bg-white flex flex-col" style={{ fontFamily: "'Inter', sans-serif" }}>
-      {/* Header */}
-      <nav className="h-14 bg-white border-b border-gray-100 flex items-center px-6">
-        <div className="w-7 h-7 bg-black rounded-lg flex items-center justify-center mr-2">
-          <span className="text-white font-black text-[9px]">IF</span>
+  // Guard: if still loading or no token, show loading state
+  if (isLoading || !token) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center" style={{ background: '#0a0c1e' }}>
+        <div className="relative mb-8">
+          <div className="w-16 h-16 rounded-2xl border-2 border-indigo-500/20 border-t-indigo-500 animate-spin" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full bg-indigo-500/10 blur-xl animate-pulse" />
+          </div>
         </div>
-        <span className="font-black text-black">ImFhired</span>
-        <span className="ml-3 text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded-full">Profile Setup</span>
+        <h2 className="text-white font-bold text-lg mb-2">Loading your profile</h2>
+        <p className="text-slate-400 text-sm max-w-xs">Preparing your onboarding...</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-surface-50 relative overflow-hidden flex flex-col" style={{ fontFamily: "'Inter', sans-serif" }}>
+      {/* Abstract Background Orbs */}
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-brand-300/20 rounded-full blur-[100px] pointer-events-none animate-pulse-slow" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-300/20 rounded-full blur-[100px] pointer-events-none animate-float" />
+
+      {/* Header */}
+      <nav className="h-[72px] bg-white/60 backdrop-blur-xl border-b border-white/40 flex items-center px-6 relative z-30 shadow-glass">
+        <div className="w-8 h-8 bg-brand-600 shadow-glow rounded-xl flex items-center justify-center mr-2 group-hover:scale-105 transition-transform">
+          <span className="text-white font-black text-[10px]">IF</span>
+        </div>
+        <span className="font-black font-display text-surface-900 text-xl tracking-tight">FiredIn</span>
+        <span className="ml-3 text-[10px] font-bold text-brand-600 uppercase tracking-widest bg-brand-50 border border-brand-100 px-3 py-1 rounded-full shadow-sm">Profile Setup</span>
       </nav>
 
-      <div className="flex-1 max-w-xl mx-auto w-full px-4 py-8">
+      <div className="flex-1 max-w-xl mx-auto w-full px-4 py-8 relative z-10">
         {/* Progress bar */}
         <div className="mb-8">
-          <div className="flex justify-between text-xs text-gray-400 font-medium mb-2">
+          <div className="flex justify-between text-[10px] uppercase tracking-widest text-surface-400 font-bold mb-2">
             <span>Step {step} of {STEPS.length}</span>
-            <span>{STEPS[step - 1].label}</span>
+            <span className="text-brand-600">{STEPS[step - 1]?.label}</span>
           </div>
-          <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+          <div className="h-2 bg-white/50 backdrop-blur-sm border border-white rounded-full overflow-hidden shadow-inner">
             <div
-              className="h-full bg-black rounded-full transition-all duration-500"
+              className="h-full bg-brand-600 rounded-full transition-all duration-500 shadow-glow"
               style={{ width: `${(step / STEPS.length) * 100}%` }}
             />
           </div>
         </div>
 
         {/* Step title */}
-        <h1 className="text-2xl font-black text-black mb-6" style={{ letterSpacing: '-0.02em' }}>
+        <h1 className="text-3xl font-black font-display text-surface-900 mb-6 drop-shadow-sm" style={{ letterSpacing: '-0.02em' }}>
           {step === 1 && 'Tell us about yourself'}
           {step === 2 && "What's your situation?"}
           {step === 3 && 'Your work experience'}
@@ -191,7 +307,10 @@ export default function OnboardingPage() {
         </h1>
 
         {/* Card */}
-        <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-5">
+        <div className="bg-white/70 backdrop-blur-xl rounded-4xl border border-white/50 shadow-glass hover:shadow-glass-hover transition-all duration-500 p-8 space-y-6 relative overflow-hidden">
+          {/* Subtle inner gradient */}
+          <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent pointer-events-none" />
+          <div className="relative z-10 space-y-6">
 
           {/* Step 1 — Basic Info */}
           {step === 1 && (
@@ -473,23 +592,24 @@ export default function OnboardingPage() {
               </div>
             </>
           )}
+          </div>
         </div>
 
         {/* Navigation */}
-        <div className="flex items-center justify-between mt-6">
+        <div className="flex items-center justify-between mt-8">
           <button onClick={() => setStep(s => s - 1)} disabled={step === 1}
-            className="flex items-center gap-2 px-5 py-3 text-gray-600 font-semibold rounded-xl hover:bg-gray-100 disabled:opacity-30 transition-colors text-sm">
+            className="flex items-center gap-2 px-5 py-3.5 text-surface-500 font-bold uppercase tracking-widest text-[11px] rounded-xl hover:bg-white/50 backdrop-blur-sm border border-transparent hover:border-white/50 disabled:opacity-30 transition-all shadow-sm">
             <ChevronLeft className="w-4 h-4" /> Back
           </button>
 
           {step < STEPS.length ? (
-            <button onClick={() => setStep(s => s + 1)} disabled={!canNext()}
-              className="flex items-center gap-2 px-8 py-3 bg-black hover:bg-gray-800 disabled:opacity-30 text-white font-bold rounded-xl transition-colors text-sm">
+            <button onClick={handleNext} disabled={!canNext()}
+              className="flex items-center gap-2 px-8 py-3.5 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white font-black uppercase tracking-widest text-[11px] rounded-2xl transition-all shadow-glow hover:shadow-glow-lg">
               Continue <ChevronRight className="w-4 h-4" />
             </button>
           ) : (
             <button onClick={handleFinish} disabled={!canNext() || saving}
-              className="flex items-center gap-2 px-8 py-3 bg-black hover:bg-gray-800 disabled:opacity-30 text-white font-bold rounded-xl transition-colors text-sm">
+              className="flex items-center gap-2 px-8 py-3.5 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white font-black uppercase tracking-widest text-[11px] rounded-2xl transition-all shadow-glow hover:shadow-glow-lg">
               {saving
                 ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</>
                 : <><CheckCircle className="w-4 h-4" /> Complete Profile</>
@@ -500,8 +620,9 @@ export default function OnboardingPage() {
       </div>
 
       <style jsx global>{`
-        .inp { width: 100%; padding: 0.75rem 1rem; background: #f9fafb; border: 1.5px solid #e5e7eb; border-radius: 0.75rem; font-size: 0.875rem; font-weight: 500; color: #111827; outline: none; transition: all 0.15s; }
-        .inp:focus { border-color: #111827; background: #fff; box-shadow: 0 0 0 3px rgba(0,0,0,0.06); }
+        .inp { width: 100%; padding: 0.875rem 1.25rem; background: rgba(255, 255, 255, 0.5); backdrop-filter: blur(8px); border: 1px solid rgba(255, 255, 255, 0.8); box-shadow: 0 1px 2px rgba(0,0,0,0.02); border-radius: 1rem; font-size: 0.875rem; font-weight: 600; color: #0f172a; outline: none; transition: all 0.2s; }
+        .inp:focus { border-color: #3b82f6; background: #fff; box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1); }
+        .inp::placeholder { color: #94a3b8; font-weight: 500; }
         select.inp { cursor: pointer; }
       `}</style>
     </div>
@@ -511,8 +632,16 @@ export default function OnboardingPage() {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">{label}</label>
+      <label className="block text-[10px] font-black text-surface-400 uppercase tracking-widest mb-2">{label}</label>
       {children}
     </div>
+  )
+}
+
+export default function OnboardingPage() {
+  return (
+    <AuthGuard requiredRole="candidate">
+      <OnboardingContent />
+    </AuthGuard>
   )
 }

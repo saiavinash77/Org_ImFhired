@@ -3,15 +3,14 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import axios from 'axios'
 import { useDropzone } from 'react-dropzone'
 import { useRouter } from 'next/navigation'
 import { 
   Upload, FileText, Brain, CheckCircle, 
   Briefcase, MapPin, Clock, 
-  Loader2, Zap, AlertCircle, Globe, Sparkles
+  Loader2, Zap, AlertCircle, Globe, Sparkles, BookOpen
 } from 'lucide-react'
-import { getApiUrl } from '@/lib/api'
+import { profilesApi, jobsApi, applicationsApi, verificationApi, storiesApi } from '@/services/api'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/hooks/useAuth'
 import AuthGuard from '@/components/AuthGuard'
@@ -28,42 +27,45 @@ function CandidateDashboardInner() {
   const [saving, setSaving] = useState(false)
   const [applications, setApplications] = useState<any[]>([])
   const [verificationStatus, setVerificationStatus] = useState<any>(null)
+  const [storyContent, setStoryContent] = useState('')
+  const [todayStory, setTodayStory] = useState<any>(null)
+  const [postingStory, setPostingStory] = useState(false)
 
   const fetchDashboardData = async () => {
     try {
       if (!token) return
       setLoading(true)
 
-      const API_URL = getApiUrl()
       // Fetch Profile
-      const profRes = await axios.get(`${API_URL}/api/v1/profiles/me`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      const profileData = profRes.data
+      const profileData = await profilesApi.get()
       setProfile(profileData)
 
       // Guard: if onboarding not completed, redirect
-      if (!profileData?.onboarding_completed) {
+      if (!profileData?.profile?.onboarding_completed) {
         router.push('/candidate/onboarding')
         return
       }
 
       // Fetch Active Jobs
-      const jobsRes = await axios.get(`${API_URL}/api/v1/jobs/?is_active=true`)
-      setJobs(jobsRes.data)
+      const jobsData = await jobsApi.list({ is_active: 'true' })
+      setJobs(jobsData)
 
       // Fetch My Applications to get official AI scores
-      const appsRes = await axios.get(`${API_URL}/api/v1/applications/me`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      setApplications(appsRes.data)
+      const appsData = await applicationsApi.listMe()
+      setApplications(appsData)
 
       // Fetch verification status
       try {
-        const verRes = await axios.get(`${API_URL}/api/v1/verification/status`, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        setVerificationStatus(verRes.data)
+        const verData = await verificationApi.status()
+        setVerificationStatus(verData)
+      } catch (e) {
+        // non-fatal
+      }
+
+      // Fetch today's story status
+      try {
+        const storyData = await storiesApi.getToday()
+        setTodayStory(storyData.story)
       } catch (e) {
         // non-fatal
       }
@@ -71,7 +73,7 @@ function CandidateDashboardInner() {
     } catch (err: any) {
       console.error('Dashboard Fetch Error:', err)
       // If it's a 401, then the token is truly dead
-      if (err.response?.status === 401) {
+      if (err.status === 401) {
         toast.error('Session expired. Please log in again.')
         logout()
       } else {
@@ -87,6 +89,30 @@ function CandidateDashboardInner() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token])
 
+  const postStory = async () => {
+    if (!storyContent.trim() || storyContent.trim().length < 10) {
+      toast.error('Write at least 10 characters about your work today!')
+      return
+    }
+    if (storyContent.length > 300) {
+      toast.error('Keep it under 300 characters!')
+      return
+    }
+    setPostingStory(true)
+    const toastId = toast.loading('AI is tagging your story...')
+    try {
+      const res = await storiesApi.post(storyContent)
+      setTodayStory(res)
+      setStoryContent('')
+      toast.success('Story posted! Recruiters can now discover you.', { id: toastId })
+    } catch (err: any) {
+      const msg = err.message || 'Failed to post story'
+      toast.error(msg, { id: toastId })
+    } finally {
+      setPostingStory(false)
+    }
+  }
+
   const onDrop = useCallback(async (accepted: File[]) => {
     if (accepted.length === 0) return
     const file = accepted[0]
@@ -95,27 +121,21 @@ function CandidateDashboardInner() {
     const toastId = toast.loading('Uploading and parsing resume with AI...')
     
     try {
-      const API_URL = getApiUrl()
       const formData = new FormData()
       formData.append('resume', file)
       
-      const res = await axios.post(`${API_URL}/api/v1/profiles/me/resume`, formData, {
-        headers: { 
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'multipart/form-data'
-        }
-      })
+      const res = await profilesApi.uploadResume(formData)
       
-      setProfile(res.data)
+      setProfile(res)
       toast.success('Resume parsed successfully! Insights updated.', { id: toastId })
     } catch (err: any) {
       console.error('Resume upload error:', err)
-      const msg = err.response?.data?.detail || err.message || 'Failed to upload resume'
+      const msg = err.message || 'Failed to upload resume'
       toast.error(msg, { id: toastId })
     } finally {
       setUploading(false)
     }
-  }, [token])
+  }, [])
 
   const handleEditProfile = () => {
     setEditForm({
@@ -129,11 +149,8 @@ function CandidateDashboardInner() {
     e.preventDefault()
     setSaving(true)
     try {
-      const API_URL = getApiUrl()
-      const res = await axios.put(`${API_URL}/api/v1/profiles/me`, editForm, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      setProfile(res.data)
+      const res = await profilesApi.updateProfile(editForm)
+      setProfile(res)
       setIsEditModalOpen(false)
       toast.success('Profile updated successfully!')
     } catch (err) {
@@ -158,11 +175,8 @@ function CandidateDashboardInner() {
     const toastId = toast.loading('Deleting resume...')
     
     try {
-      const API_URL = getApiUrl()
-      const res = await axios.delete(`${API_URL}/api/v1/profiles/me/resume`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      setProfile(res.data)
+      const res = await profilesApi.deleteResume()
+      setProfile(res)
       toast.success('Resume and insights removed.', { id: toastId })
     } catch (err) {
       console.error(err)
@@ -207,23 +221,29 @@ function CandidateDashboardInner() {
   }).filter(j => j.matchPercentage > 20).sort((a, b) => b.matchPercentage - a.matchPercentage)
 
   return (
-    <div className="min-h-screen bg-surface-50 pb-20 text-surface-900">
+    <div className="min-h-screen bg-surface-50 relative overflow-hidden text-surface-900 pb-20">
+      {/* Abstract Animated Mesh Background */}
+      <div className="absolute top-0 left-0 w-full h-full pointer-events-none opacity-40">
+         <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-brand-300/20 rounded-full blur-[120px] animate-float" />
+         <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-purple-300/20 rounded-full blur-[120px] animate-float" style={{ animationDelay: '2s' }} />
+      </div>
+
       {/* Navbar */}
-      <nav className="h-[72px] bg-white border-b border-surface-100 flex items-center px-6 sticky top-0 z-30 shadow-sm">
+      <nav className="h-[72px] bg-white/60 backdrop-blur-xl border-b border-white/40 flex items-center px-6 sticky top-0 z-30 shadow-glass">
         <div className="max-w-7xl mx-auto w-full flex items-center justify-between">
-          <Link href="/candidate/dashboard" className="flex items-center gap-2.5 group">
-            <Image src="/imfhired-logo.png" alt="ImFhired" width={40} height={40} className="rounded-xl object-cover logo-glow group-hover:scale-105 transition-transform" />
-            <div>
-               <span className="text-lg font-black text-surface-900 tracking-tight block leading-none">ImFhired</span>
-               <span className="text-[10px] font-bold text-brand-600 uppercase tracking-widest">Candidate</span>
+          <Link href="/candidate/dashboard" className="flex items-center gap-1 group">
+            <span className="logo-fired text-xl font-black tracking-tight">Fired</span>
+            <span className="logo-in text-xl font-black tracking-tight">In</span>
+            <div className="ml-2">
+               <span className="text-[10px] font-bold text-brand-600 uppercase tracking-widest block leading-none">Candidate</span>
             </div>
           </Link>
           <div className="flex items-center gap-6 text-sm font-bold">
-             <Link href="/" className="text-surface-500 hover:text-surface-900 transition-colors flex items-center gap-1.5"><Globe className="w-4 h-4" /> Home</Link>
-             <Link href="/candidate/jobs" className="text-surface-500 hover:text-surface-900 transition-colors">Browse Jobs</Link>
+             <Link href="/" className="text-surface-500 hover:text-brand-600 transition-colors flex items-center gap-1.5"><Globe className="w-4 h-4" /> Home</Link>
+             <Link href="/candidate/jobs" className="text-surface-500 hover:text-brand-600 transition-colors">Browse Jobs</Link>
              <div className="w-px h-6 bg-surface-200" />
              <div className="flex items-center gap-3">
-               <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-bold">
+               <div className="w-8 h-8 rounded-full bg-brand-600 shadow-glow text-white flex items-center justify-center text-xs font-black">
                  {getInitials()}
                </div>
                <button onClick={logout} className="text-surface-500 hover:text-red-500 transition-colors">Logout</button>
@@ -232,80 +252,25 @@ function CandidateDashboardInner() {
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-6 py-10">
+      <div className="max-w-7xl mx-auto px-6 py-10 relative z-10">
 
-        {/* Verification Banner */}
-        {verificationStatus && !verificationStatus.verified && (
-          <div className={`mb-6 rounded-2xl p-5 flex items-center justify-between gap-4 ${
-            verificationStatus.status === 'pending' || verificationStatus.status === 'resume_uploaded'
-              ? 'bg-amber-50 border border-amber-200'
-              : 'bg-blue-50 border border-blue-200'
-          }`}>
-            <div className="flex items-center gap-4">
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                verificationStatus.status === 'pending' ? 'bg-amber-100' : 'bg-blue-100'
-              }`}>
-                <AlertCircle className={`w-5 h-5 ${verificationStatus.status === 'pending' ? 'text-amber-600' : 'text-blue-600'}`} />
-              </div>
-              <div>
-                <p className="font-bold text-surface-900 text-sm">
-                  {verificationStatus.status === 'pending' || !verificationStatus.has_resume
-                    ? 'Upload your resume to get verified'
-                    : 'Complete your verification interview'}
-                </p>
-                <p className="text-xs text-surface-500 mt-0.5">
-                  {verificationStatus.status === 'pending' || !verificationStatus.has_resume
-                    ? 'Upload your resume below, then complete a short AI interview to get your Verified badge.'
-                    : 'You\'re one step away from your Verified badge. Complete the AI interview to unlock job applications.'}
-                </p>
-              </div>
-            </div>
-            {verificationStatus.has_resume && (
-              <button
-                onClick={async () => {
-                  try {
-                    const API_URL = getApiUrl()
-                    const res = await axios.post(`${API_URL}/api/v1/verification/start`, {}, {
-                      headers: { Authorization: `Bearer ${token}` }
-                    })
-                    router.push(`/candidate/verify/${res.data.interview_id}`)
-                  } catch (e: any) {
-                    toast.error(e.response?.data?.detail || 'Failed to start verification')
-                  }
-                }}
-                className="shrink-0 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl transition-colors"
-              >
-                Start Verification →
-              </button>
-            )}
-          </div>
-        )}
 
-        {verificationStatus?.verified && (
-          <div className="mb-6 rounded-2xl p-4 bg-green-50 border border-green-200 flex items-center gap-3">
-            <CheckCircle className="w-5 h-5 text-green-600 shrink-0" />
-            <div>
-              <span className="font-bold text-green-800 text-sm">✓ Verified Professional</span>
-              <span className="text-green-600 text-xs ml-2">Score: {Math.round(verificationStatus.score)}/100 — Your badge is active on all applications</span>
-            </div>
-          </div>
-        )}
         <div className="grid lg:grid-cols-3 gap-8">
           
           {/* Left Column: Profile & Resume */}
           <div className="lg:col-span-1 space-y-6">
             {/* Premium ID Card */}
-            <div className="bg-white rounded-3xl border border-surface-100 shadow-card hover:shadow-card-hover transition-all relative overflow-hidden group">
+            <div className="bg-white/70 backdrop-blur-xl rounded-4xl border border-white/50 shadow-glass hover:shadow-glass-hover transition-all duration-500 relative overflow-hidden group">
                {/* Premium Banner Background */}
-               <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-br from-brand-600 via-brand-500 to-purple-600" />
-               <div className="absolute top-0 left-0 w-full h-32 opacity-10" style={{ backgroundImage: "radial-gradient(circle at 2px 2px, white 1px, transparent 0)", backgroundSize: "16px 16px" }} />
+               <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-br from-brand-600 via-brand-500 to-purple-600 opacity-90" />
+               <div className="absolute top-0 left-0 w-full h-32 bg-[url('/grid-pattern.svg')] opacity-20 bg-repeat" />
                
                {/* Visual Edit Button */}
                <button 
                 onClick={handleEditProfile}
-                className="absolute top-4 right-4 z-20 w-8 h-8 bg-white/20 hover:bg-white/30 backdrop-blur-md rounded-full flex items-center justify-center transition-colors shadow-lg"
+                className="absolute top-4 right-4 z-20 w-8 h-8 bg-white/20 hover:bg-white/40 backdrop-blur-md rounded-full flex items-center justify-center transition-colors shadow-lg"
                >
-                   <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                   <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                </button>
 
                <div className="relative z-10 flex flex-col items-center text-center mt-12 px-6 pb-8">
@@ -347,6 +312,49 @@ function CandidateDashboardInner() {
                    </div>
                  </div>
                </div>
+            </div>
+            
+            {/* Stories of Work Composer */}
+            <div className="bg-white/70 backdrop-blur-xl rounded-4xl p-6 border border-white/50 shadow-glass">
+               <h3 className="text-sm font-black uppercase tracking-widest text-surface-900 mb-4 flex items-center gap-2">
+                 <BookOpen className="w-4 h-4 text-brand-500" /> Story of Today
+               </h3>
+               
+               {todayStory ? (
+                 <div className="bg-brand-50/50 border border-brand-100 rounded-2xl p-4">
+                    <p className="text-xs font-bold text-brand-600 uppercase tracking-widest mb-2">Today's Entry</p>
+                    <p className="text-sm text-surface-800 leading-relaxed italic mb-3">"{todayStory.content}"</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {todayStory.ai_tags?.map((tag: string) => (
+                        <span key={tag} className="text-[10px] font-black bg-white/80 text-brand-600 px-2 py-0.5 rounded-full border border-brand-100">
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
+                 </div>
+               ) : (
+                 <div className="space-y-4">
+                    <textarea 
+                      value={storyContent}
+                      onChange={(e) => setStoryContent(e.target.value)}
+                      placeholder="What did you build or learn today? (Max 300 chars)"
+                      className="w-full min-h-[100px] p-4 bg-surface-50 border border-surface-200 rounded-2xl text-sm font-medium focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 outline-none transition-all resize-none"
+                    />
+                    <div className="flex items-center justify-between">
+                       <span className={`text-[10px] font-black uppercase tracking-widest ${storyContent.length > 300 ? 'text-red-500' : 'text-surface-400'}`}>
+                         {storyContent.length}/300
+                       </span>
+                       <button 
+                         onClick={postStory}
+                         disabled={postingStory || storyContent.length < 10 || storyContent.length > 300}
+                         className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-lg shadow-brand-100 transition-all disabled:opacity-50 flex items-center gap-2"
+                       >
+                         {postingStory ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                         Post Story
+                       </button>
+                    </div>
+                 </div>
+               )}
             </div>
 
             {/* Resume Upload Module */}
@@ -415,7 +423,7 @@ function CandidateDashboardInner() {
           <div className="lg:col-span-2 space-y-6">
             
             {/* AI Insights Card */}
-            <div className="bg-white rounded-3xl p-6 border border-surface-100 shadow-sm">
+            <div className="bg-white/70 backdrop-blur-xl rounded-4xl p-8 border border-white/50 shadow-glass transition-all duration-500">
               <div className="flex items-center gap-2 mb-6">
                 <div className="w-8 h-8 rounded-xl bg-brand-50 flex items-center justify-center">
                    <Brain className="w-4 h-4 text-brand-600" />
@@ -458,6 +466,68 @@ function CandidateDashboardInner() {
                        </div>
                      </div>
                   )}
+                </div>
+              )}
+            </div>
+
+            {/* My Applications */}
+            <div>
+              <h3 className="text-lg font-black text-surface-900 mb-4 flex items-center gap-2">
+                <Briefcase className="w-5 h-5 text-brand-600" /> 
+                My Applications
+              </h3>
+              
+              {applications.length === 0 ? (
+                <div className="bg-white rounded-3xl p-8 border border-surface-100 shadow-sm text-center">
+                  <p className="text-sm font-medium text-surface-500">You haven't applied to any jobs yet.</p>
+                  <Link href="/candidate/jobs" className="inline-block mt-4 text-brand-600 font-bold hover:underline text-sm">Browse Jobs</Link>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {applications.map((app) => (
+                    <div key={app.id} className="bg-white rounded-2xl border border-surface-100 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="flex items-center gap-4">
+                         <div className="w-12 h-12 bg-surface-50 rounded-xl flex items-center justify-center text-brand-600 shadow-sm">
+                           <Briefcase className="w-6 h-6" />
+                         </div>
+                         <div>
+                            <h4 className="font-bold text-surface-900 leading-tight">{app.jobs?.title || 'Position'}</h4>
+                            <div className="flex items-center gap-2 mt-1">
+                               <span className="text-[10px] font-black uppercase tracking-widest text-surface-400">{app.jobs?.location || 'Remote'}</span>
+                               <span className="text-surface-200">•</span>
+                               <span className="text-[10px] font-black uppercase tracking-widest text-surface-400">Applied {new Date(app.created_at).toLocaleDateString()}</span>
+                            </div>
+                         </div>
+                      </div>
+                      
+                      <div className="flex items-center justify-between sm:justify-end gap-6">
+                         <div className="flex flex-col items-end">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-surface-400 mb-1">Status</span>
+                            <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border ${
+                              app.status === 'hired' ? 'bg-green-100 text-green-700 border-green-200' :
+                              app.status === 'rejected' ? 'bg-red-100 text-red-700 border-red-200' :
+                              app.status === 'invited' ? 'bg-brand-100 text-brand-700 border-brand-200 animate-pulse' :
+                              'bg-surface-100 text-surface-600 border-surface-200'
+                            }`}>
+                              {app.status}
+                            </span>
+                         </div>
+                         
+                         {app.status === 'invited' && (
+                           <Link href={`/candidate/schedule?app_id=${app.id}`} className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-glow">
+                             Schedule
+                           </Link>
+                         )}
+                         
+                         {app.ai_score !== null && (
+                            <div className="flex flex-col items-center bg-brand-50/50 border border-brand-100 px-3 py-1.5 rounded-xl">
+                               <span className="text-[9px] font-black uppercase tracking-widest text-brand-600 mb-0.5">AI Match</span>
+                               <span className="text-sm font-black text-brand-700">{Math.round(app.ai_score * 100)}%</span>
+                            </div>
+                         )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

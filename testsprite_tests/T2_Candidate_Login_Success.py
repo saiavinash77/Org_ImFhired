@@ -52,19 +52,19 @@ async def run_test():
         await elem.wait_for(state="visible", timeout=10000)
         await elem.click()
         
-        # -> Fill the email field with testcandidate@imfhired.com (input index 658) as the immediate next action.
+        # -> Fill the email field with testcandidate@firedin.com (input index 658) as the immediate next action.
         # email input placeholder="you@example.com"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/div/input").nth(0)
         await elem.wait_for(state="visible", timeout=10000)
-        await elem.fill("testcandidate@imfhired.com")
+        await elem.fill("testcandidate@firedin.com")
         
-        # -> Fill the email field with testcandidate@imfhired.com (input index 658) as the immediate next action.
+        # -> Fill the email field with testcandidate@firedin.com (input index 658) as the immediate next action.
         # password input placeholder="••••••••"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/div[2]/div[2]/input").nth(0)
         await elem.wait_for(state="visible", timeout=10000)
         await elem.fill("Test1234!")
         
-        # -> Fill the email field with testcandidate@imfhired.com (input index 658) as the immediate next action.
+        # -> Fill the email field with testcandidate@firedin.com (input index 658) as the immediate next action.
         # button "Sign In"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/button").nth(0)
         await elem.wait_for(state="visible", timeout=10000)
@@ -80,21 +80,21 @@ async def run_test():
         # email input placeholder="you@example.com"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/div/input").nth(0)
         await elem.wait_for(state="visible", timeout=10000)
-        await elem.fill("testcandidate@imfhired.com")
+        await elem.fill("testcandidate@firedin.com")
         
-        # -> Fill the email field with testcandidate@imfhired.com (input index 3) as the next immediate action.
+        # -> Fill the email field with testcandidate@firedin.com (input index 3) as the next immediate action.
         # email input placeholder="you@example.com"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/div/input").nth(0)
         await elem.wait_for(state="visible", timeout=10000)
-        await elem.fill("testcandidate@imfhired.com")
+        await elem.fill("testcandidate@firedin.com")
         
-        # -> Fill the email field with testcandidate@imfhired.com (input index 3) as the next immediate action.
+        # -> Fill the email field with testcandidate@firedin.com (input index 3) as the next immediate action.
         # password input placeholder="••••••••"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/div[2]/div[2]/input").nth(0)
         await elem.wait_for(state="visible", timeout=10000)
         await elem.fill("Test1234!")
         
-        # -> Fill the email field with testcandidate@imfhired.com (input index 3) as the next immediate action.
+        # -> Fill the email field with testcandidate@firedin.com (input index 3) as the next immediate action.
         # button "Sign In"
         elem = page.locator("xpath=/html/body/div/div[3]/div[2]/form/button").nth(0)
         await elem.wait_for(state="visible", timeout=10000)

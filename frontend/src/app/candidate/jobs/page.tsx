@@ -3,13 +3,12 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import axios from 'axios'
+import { jobsApi, verificationApi } from '@/services/api'
 import { 
   Search, MapPin, Clock, Briefcase, 
   ChevronRight, Sparkles, Zap, Building2,
   DollarSign, GraduationCap, Brain, Share2, Linkedin, Globe
 } from 'lucide-react'
-import { getApiUrl } from '@/lib/api'
 import toast from 'react-hot-toast'
 
 export default function CandidateJobsPage() {
@@ -21,9 +20,8 @@ export default function CandidateJobsPage() {
   useEffect(() => {
     const fetchJobs = async () => {
       try {
-        const API_URL = getApiUrl();
-        const response = await axios.get(`${API_URL}/api/v1/jobs/?is_active=true`)
-        setJobs(response.data)
+        const response = await jobsApi.list({ is_active: 'true' })
+        setJobs(response)
       } catch (err) {
         toast.error('Failed to load jobs')
         console.error(err)
@@ -32,14 +30,11 @@ export default function CandidateJobsPage() {
       }
     }
     const checkVerification = async () => {
-      const token = localStorage.getItem('imfhired_token')
+      const token = localStorage.getItem('firedin_token')
       if (!token) return
       try {
-        const API_URL = getApiUrl()
-        const res = await axios.get(`${API_URL}/api/v1/verification/status`, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        setIsVerified(res.data.verified === true)
+        const res = await verificationApi.status()
+        setIsVerified(res.verified === true)
       } catch {
         setIsVerified(false)
       }
@@ -53,13 +48,13 @@ export default function CandidateJobsPage() {
       "@context": "https://schema.org/",
       "@type": "JobPosting",
       "title": job.title,
-      "description": job.description || "Join our team at ImFhired.",
+      "description": job.description || "Join our team at FiredIn.",
       "datePosted": job.created_at || new Date().toISOString(),
       "validThrough": new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       "employmentType": job.job_type === 'full_time' ? 'FULL_TIME' : 'CONTRACTOR',
       "hiringOrganization": {
         "@type": "Organization",
-        "name": "ImFhired",
+        "name": "FiredIn",
         "sameAs": window.location.origin
       },
       "jobLocation": {
@@ -86,7 +81,7 @@ export default function CandidateJobsPage() {
 
   const handleShare = (job: any, platform: 'linkedin' | 'whatsapp') => {
     const jobUrl = `${window.location.origin}/candidate/jobs?id=${job.id}`
-    const text = `I found a great job: ${job.title}!\n📍 ${job.location || 'Remote'} | ${job.job_type?.replace('_', ' ') || 'Full-time'}\n\nCheck it out on ImFhired.`
+    const text = `I found a great job: ${job.title}!\n📍 ${job.location || 'Remote'} | ${job.job_type?.replace('_', ' ') || 'Full-time'}\n\nCheck it out on FiredIn.`
     
     let url = ''
     if (platform === 'linkedin') {
@@ -243,22 +238,13 @@ export default function CandidateJobsPage() {
                     </button>
                   </div>
 
-                  {isVerified === false ? (
-                    <button
-                      onClick={() => toast.error('Complete your verification interview first to apply for jobs.')}
-                      className="flex-1 flex items-center justify-center gap-2 bg-gray-200 text-gray-500 font-black uppercase tracking-widest text-[11px] py-3 rounded-xl cursor-not-allowed"
-                    >
-                      🔒 Verify First
-                    </button>
-                  ) : (
-                    <Link 
-                      href={`/candidate/apply?job_id=${job.id}`}
-                      className="flex-1 flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 text-white font-black uppercase tracking-widest text-[11px] py-3 rounded-xl transition-all shadow-sm active:scale-95 group/btn"
-                    >
-                      Apply Now
-                      <ChevronRight className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />
-                    </Link>
-                  )}
+                  <Link 
+                    href={`/candidate/apply?job_id=${job.id}`}
+                    className="flex-1 flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 text-white font-black uppercase tracking-widest text-[11px] py-3 rounded-xl transition-all shadow-sm active:scale-95 group/btn"
+                  >
+                    Apply Now
+                    <ChevronRight className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />
+                  </Link>
                 </div>
               </div>
             ))}

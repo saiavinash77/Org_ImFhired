@@ -443,7 +443,7 @@ def _build_session_config(state_machine: InterviewStateMachine) -> Dict[str, Any
 async def realtime_interview(
     websocket: WebSocket,
     interview_id: str,
-    token: str = Query(default="mock"),
+    token: str = Query(...),
 ):
     """
     True speech-to-speech intervew via OpenAI Realtime API proxy.
@@ -507,7 +507,7 @@ async def realtime_interview(
     kickoff_instruction = (
         f"The candidate ({candidate_name}) just joined for the interview for: {job_title}. "
         "You MUST speak ONLY in English for the entire interview. "
-        "Speak now as ImFhired: greet them by name in English, briefly confirm you already have their parsed resume and "
+        "Speak now as FiredIn: greet them by name in English, briefly confirm you already have their parsed resume and "
         "application on file for this role, and ask one short question about what drew them to the role. "
         "Do not ask them to upload or resend a resume, and do not ask for a phone number for routine verification. "
         "If the candidate speaks in any language other than English, politely ask them to respond in English."

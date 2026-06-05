@@ -71,7 +71,7 @@ export default function ForgotPasswordPage() {
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
             <span className="text-white font-black text-[9px]">IF</span>
           </div>
-          <span className="font-black text-gray-900 text-lg">ImFhired</span>
+          <span className="font-black text-gray-900 text-lg">FiredIn</span>
         </div>
 
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8">

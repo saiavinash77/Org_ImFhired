@@ -66,8 +66,8 @@ export default function InterviewSuccess() {
       </div>
 
       <div className="mt-8 flex items-center gap-2">
-        <Image src="/imfhired-logo.png" alt="ImFhired" width={32} height={32} className="rounded-lg opacity-40 grayscale" />
-        <span className="text-slate-300 font-bold text-sm">Powered by ImFhired</span>
+        <Image src="/firedin-logo.png" alt="FiredIn" width={32} height={32} className="rounded-lg opacity-40 grayscale" />
+        <span className="text-slate-300 font-bold text-sm">Powered by FiredIn</span>
       </div>
     </div>
   )

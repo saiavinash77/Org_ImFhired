@@ -9,8 +9,7 @@ import {
     Target, Brain, ChevronRight,
     Flag, Zap, Award, MessageSquare, Bot, Search
 } from 'lucide-react'
-import axios from 'axios'
-import { getApiUrl } from '@/lib/api'
+import { assessmentsApi } from '@/services/api'
 
 // ── Score Ring ─────────────────────────────────────────────────────────────────
 function ScoreRing({ score, size = 88, strokeWidth = 7, color = '#6366f1' }: {
@@ -181,14 +180,10 @@ export default function HRAssessmentPage({ params }: { params: { interviewId: st
     useEffect(() => {
         const fetchAssessment = async () => {
             try {
-                const token = localStorage.getItem('imfhired_token')
-                const API_URL = getApiUrl()
-                const res = await axios.get(`${API_URL}/api/v1/assessments/${params.interviewId}`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                })
-                setAssessment(res.data)
+                const res = await assessmentsApi.get(params.interviewId)
+                setAssessment(res)
             } catch (err: any) {
-                setError(err.response?.status === 202
+                setError(err.status === 202
                     ? 'Assessment is still being generated. Please refresh shortly.'
                     : 'Failed to load assessment report.')
             } finally {
@@ -206,12 +201,8 @@ export default function HRAssessmentPage({ params }: { params: { interviewId: st
         if (transcript.length > 0) return // already loaded
         setTranscriptLoading(true); setTranscriptError(null)
         try {
-            const token = localStorage.getItem('imfhired_token')
-            const res = await axios.get(
-                `${getApiUrl()}/api/v1/assessments/${params.interviewId}/transcript`,
-                { headers: { Authorization: `Bearer ${token}` } }
-            )
-            setTranscript(res.data.transcript || [])
+            const res = await assessmentsApi.getTranscript(params.interviewId)
+            setTranscript(res.transcript || [])
         } catch {
             setTranscriptError('Could not load transcript. Please try again.')
         } finally {
@@ -226,14 +217,10 @@ export default function HRAssessmentPage({ params }: { params: { interviewId: st
     const handleSendOffer = async () => {
         setSendingOffer(true); setOfferError(null)
         try {
-            const token = localStorage.getItem('imfhired_token')
-            const res = await axios.post(
-                `${getApiUrl()}/api/v1/assessments/${params.interviewId}/send-offer`, {},
-                { headers: { Authorization: `Bearer ${token}` } }
-            )
-            setOfferSent(true); setOfferEmail(res.data.candidate_email || null)
+            const res = await assessmentsApi.sendOffer(params.interviewId)
+            setOfferSent(true); setOfferEmail(res.candidate_email || null)
         } catch (err: any) {
-            setOfferError(err.response?.data?.detail || 'Failed to send offer. Try again.')
+            setOfferError(err.message || 'Failed to send offer. Try again.')
         } finally {
             setSendingOffer(false)
         }
@@ -812,7 +799,7 @@ export default function HRAssessmentPage({ params }: { params: { interviewId: st
                                                         <div className={`max-w-[75%] ${ isAI ? '' : 'items-end'} flex flex-col gap-1`}>
                                                             <div className={`flex items-center gap-2 ${ isAI ? '' : 'flex-row-reverse'}`}>
                                                                 <span className="text-[11px] font-black text-surface-600">
-                                                                    {isAI ? 'ImFhired' : candidateName}
+                                                                    {isAI ? 'FiredIn' : candidateName}
                                                                 </span>
                                                                 {ts && <span className="text-[10px] text-surface-300 font-medium">{ts}</span>}
                                                             </div>

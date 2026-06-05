@@ -4,7 +4,7 @@
 ---
 
 ## 1️⃣ Document Metadata
-- **Project Name:** ImFhired
+- **Project Name:** FiredIn
 - **Date:** 2026-05-11
 - **Prepared by:** TestSprite AI Team
 

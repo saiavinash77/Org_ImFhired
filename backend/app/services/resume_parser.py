@@ -22,7 +22,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-client = AsyncOpenAI(api_key=settings.GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
+client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
 
 RESUME_EXTRACTION_PROMPT = """

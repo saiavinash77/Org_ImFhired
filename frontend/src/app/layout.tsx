@@ -1,13 +1,15 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { Toaster } from 'react-hot-toast'
+import Head from 'next/head'
+import { AuthInitializer } from '@/components/AuthInitializer'
 
 export const metadata: Metadata = {
-  title: 'ImFhired — The Next Door for Experienced Talent',
+  title: 'FiredIn — The Next Door for Experienced Talent',
   description: 'Stop mass-applying like a fresher. Get verified once, stand out everywhere. Built for laid-off professionals and those wanting to switch jobs.',
   keywords: 'job search, laid off, career switch, AI interview, verified candidate, experienced professionals',
   openGraph: {
-    title: "ImFhired — If You're Fired, Get Ready to Be Hired",
+    title: "FiredIn — If You're Fired, Get Ready to Be Hired",
     description: 'The next door for experienced professionals. Get verified, stand out, get hired.',
     type: 'website',
   },
@@ -20,8 +22,15 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Anton&display=swap" rel="stylesheet" />
+      </head>
       <body>
-        {children}
+        <AuthInitializer>
+          {children}
+        </AuthInitializer>
         <Toaster
           position="top-right"
           toastOptions={{
